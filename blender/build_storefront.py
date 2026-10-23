@@ -291,8 +291,24 @@ def use_mixamo_character(me, path):
     arm.matrix_parent_inverse.identity()
     arm.location = (0, 0, 0)
     me.scale = (1, 1, 1)  # the export already carries the 1.15 toy scale
-    if arm.animation_data and arm.animation_data.action:
-        arm.animation_data.action.name = "wave"
+    # clips for the page as NLA tracks (the glTF export turns each track into a named animation):
+    # "wave" from waving.fbx, "idle" from idle.fbx when present (Mixamo download Without Skin)
+    clips = {"wave": arm.animation_data.action}
+    idle_path = os.path.join(os.path.dirname(path), "idle.fbx")
+    if os.path.exists(idle_path):
+        before = set(bpy.data.objects)
+        bpy.ops.import_scene.fbx(filepath=idle_path)
+        extra = [o for o in bpy.data.objects if o not in before]
+        clips["idle"] = next(o for o in extra if o.type == "ARMATURE").animation_data.action
+        for o in extra:
+            bpy.data.objects.remove(o)
+    arm.animation_data.action = None
+    for name, action in clips.items():
+        action.name = name
+        action.use_fake_user = True
+        track = arm.animation_data.nla_tracks.new()
+        track.name = name
+        track.strips.new(name, int(action.frame_range[0]), action)
     bpy.context.scene.frame_set(1)
 
 

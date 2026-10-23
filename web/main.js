@@ -324,14 +324,22 @@ addEventListener("resize", () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 // ---------------------------------------------------------------- the character waves when you reach the window, and keeps eye contact
-// The wave is Mixamo's "Waving" clip on the auto-rigged character; its first frame doubles as the idle pose.
+// Mixamo clips on the auto-rigged character: "idle" (Breathing Idle) loops, "wave" (Waving) blends in and back out.
 const mixer = new THREE.AnimationMixer(gltf.scene);
-const waveAction = mixer.clipAction(THREE.AnimationClip.findByName(gltf.animations, "wave"));
-// always playing, parked at time 0 with timeScale 0 between waves (a finished LoopOnce action would drop to the bind pose)
-waveAction.play();
-waveAction.timeScale = 0;
+const clip = (n) => THREE.AnimationClip.findByName(gltf.animations, n);
+const idleAction = mixer.clipAction(clip("idle")).play();
+const waveAction = mixer.clipAction(clip("wave"));
+waveAction.setLoop(THREE.LoopOnce);
+waveAction.clampWhenFinished = true;
+mixer.addEventListener("finished", (e) => {
+  if (e.action === waveAction) { idleAction.reset().play(); waveAction.crossFadeTo(idleAction, 0.5, false); }
+});
 let waved = false;
-function wave() { waveAction.time = 0; waveAction.timeScale = 1; }
+function wave() {
+  if (waveAction.isRunning()) return;
+  waveAction.reset().play();
+  idleAction.crossFadeTo(waveAction, 0.35, false);
+}
 
 const headBone = scene.getObjectByName("mixamorigHead");
 const D = THREE.MathUtils.degToRad;
@@ -348,7 +356,6 @@ function animateCharacter() {
   headBone.quaternion.copy(headMixed);
   mixer.update(Math.min(clock.getDelta(), 0.1));
   headMixed.copy(headBone.quaternion);
-  if (waveAction.timeScale && waveAction.time > waveAction.getClip().duration - 0.1) { waveAction.timeScale = 0; waveAction.time = 0; }
   // eye contact: turn the head toward the camera on top of the clip, within a natural neck range, eased
   headBone.getWorldPosition(_hp);
   _dir.subVectors(camera.position, _hp).normalize();

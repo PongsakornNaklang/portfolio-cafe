@@ -59,6 +59,7 @@ bpy.ops.export_scene.gltf(
     export_cameras=False,
     export_lights=False,     # the page lights the scene itself (sun, sky, interior lamps)
     export_yup=True,
+    export_animation_mode="NLA_TRACKS",  # one glTF animation per NLA track: "wave", "idle"
     export_draco_mesh_compression_enable=True,  # the page loads it with three's DRACOLoader
     export_draco_mesh_compression_level=7,
 )

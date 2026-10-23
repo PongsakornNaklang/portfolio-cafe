@@ -56,4 +56,5 @@ This writes `web/storefront.glb` (text baked to meshes, character decimated, `ho
 
 1. `blender -b out/storefront_day.blend -P blender/export_mixamo.py -- mixamo/nakang_character.fbx` exports the character in an A-pose.
 2. Upload it to mixamo.com, auto-rig it (No Fingers), pick **Waving**, download FBX Binary, With Skin, 30 fps, and save it as `mixamo/waving.fbx`.
-3. When `mixamo/waving.fbx` exists, `build_storefront.py` swaps in that rigged character, and the clip is exported to the web as `wave`.
+3. Optional: download **Breathing Idle** (Without Skin, same settings) as `mixamo/idle.fbx`.
+4. When `mixamo/waving.fbx` exists, `build_storefront.py` swaps in that rigged character; the clips export to the web as `wave` and `idle`.
