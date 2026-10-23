@@ -327,7 +327,9 @@ addEventListener("resize", () => {
 // The arm is one skinned mesh: rotate its shoulder and elbow bones about the axis pointing at the viewer.
 const shoulder = scene.getObjectByName("char_wave_shoulder");
 const elbow = scene.getObjectByName("char_wave_elbow");
-const restQ = new Map([shoulder, elbow].map((b) => [b, b.quaternion.clone()]));
+const wrist = scene.getObjectByName("char_wave_wrist");
+const clavicle = scene.getObjectByName("char_wave_clavicle");
+const restQ = new Map([clavicle, shoulder, elbow, wrist].map((b) => [b, b.quaternion.clone()]));
 const toViewer = new THREE.Vector3(0, 0, -1); // the character faces +Z; this sign swings the arm up and out
 const _q = new THREE.Quaternion(), _axis = new THREE.Vector3();
 function bendBone(bone, angle) {
@@ -339,16 +341,38 @@ const head = scene.getObjectByName("char_head_pivot");
 const headRest = head.quaternion.clone();
 const headAim = new THREE.Quaternion();
 const D = THREE.MathUtils.degToRad;
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const backOut = (x) => 1 + 2.2 * (x - 1) ** 3 + 1.2 * (x - 1) ** 2; // reaches the pose with a small overshoot
 let waveStart = -1, waved = false;
 function wave() { waveStart = performance.now(); }
+
+// A wave the way animators block it: upper arm out to the side, forearm upright, palm to the viewer;
+// the forearm swings from the elbow while the hand lags behind and flips at each end (overlapping action).
+// Joints start and stop in succession (shoulder -> elbow -> wrist), with a little dip before the lift.
+const W = { lift: 0.5, hold: 2.3, drop: 0.55, hz: 2.1 };
+function wavePose(t) {
+  const dip = t < 0.12 ? Math.sin((t / 0.12) * Math.PI) * D(-5) : 0;  // anticipation
+  const reach = (delay) => (t < W.hold ? backOut(clamp01((t - 0.08 - delay) / W.lift)) : 1 - ease(clamp01((t - W.hold - delay) / W.drop)));
+  const env = clamp01((t - 0.45) / 0.2) * clamp01((W.hold + 0.05 - t) / 0.2);   // waving fades in/out
+  const ph = (t - 0.45) * Math.PI * 2 * W.hz;
+  return {
+    clavicle: reach(0) * D(15),                                                  // shoulder lifts with the arm, keeps its volume
+    shoulder: dip + reach(0) * D(82) + env * Math.sin(ph + 0.6) * D(4),         // the whole arm joins in a little, leading
+    elbow: reach(0.08) * D(80) + env * Math.sin(ph) * D(20),                    // forearm swings from the elbow
+    wrist: reach(0.15) * D(-10) + env * Math.sin(ph - 1.1) * D(18),             // hand lags and flips at each end
+    tilt: Math.min(reach(0), 1) * D(5),                                          // head leans toward the raised hand
+  };
+}
+
 function animateCharacter(now) {
   if (progress > 0.85 && !waved) { waved = true; wave(); }
   if (progress < 0.5) waved = false; // walk away and back to get another hello
   const t = waveStart < 0 ? 99 : (now - waveStart) / 1000;
-  const up = t < 0.45 ? ease(t / 0.45) : t < 2.2 ? 1 : t < 2.7 ? 1 - ease((t - 2.2) / 0.5) : 0;
-  const flap = t > 0.45 && t < 2.2 ? Math.sin((t - 0.45) * Math.PI * 5) * D(28) : 0;
-  bendBone(shoulder, up * D(115));
-  bendBone(elbow, up * D(45) + flap * up);
+  const p = t < W.hold + W.drop + 0.3 ? wavePose(t) : { clavicle: 0, shoulder: 0, elbow: 0, wrist: 0, tilt: 0 };
+  bendBone(clavicle, p.clavicle);
+  bendBone(shoulder, p.shoulder);
+  bendBone(elbow, p.elbow);
+  bendBone(wrist, p.wrist);
   // head: turn toward the viewer, limited to a natural neck range, eased
   head.quaternion.copy(headRest);
   const saved = head.quaternion.clone();
@@ -356,6 +380,7 @@ function animateCharacter(now) {
   headAim.copy(head.quaternion);
   head.quaternion.copy(saved);
   headAim.copy(saved.clone().rotateTowards(headAim, D(35)));
+  headAim.premultiply(_q.setFromAxisAngle(_axis.set(0, 0, 1), p.tilt));
   head.userData.q = (head.userData.q || saved.clone()).slerp(headAim, 0.08);
   head.quaternion.copy(head.userData.q);
 }

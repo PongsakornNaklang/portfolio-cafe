@@ -43,7 +43,7 @@ PROJECTS = [
 PALETTE = {
     "concrete": "#d9d6cf", "concrete_dark": "#c9c5bc", "wall": "#f4f2ec", "block_a": "#e7e3da",
     "block_b": "#dcd8cf", "mortar": "#b9b4aa", "plywood": "#e6cfa6", "steel": "#c4c8cc",
-    "frame": "#dcdcd8", "sign": "#ffe100", "sign_frame": "#e4e4e0", "ink": "#2b2420", "display": "#fff6dc",
+    "frame": "#f1f2f3", "sign": "#ffe100", "sign_frame": "#e4e4e0", "ink": "#2b2420", "display": "#fff6dc",
     "glass": "#eef7fa", "stool_red": "#e8483b", "stool_blue": "#3c6fd8", "leaf": "#5f9a4a",
     "leaf_dark": "#4a7d3a", "pot": "#c9714a", "asphalt": "#8a8f99", "curb_red": "#d9473c",
     "curb_white": "#f2f0ea", "sidewalk": "#dcd8cf", "pink": "#f3d9cf", "mint": "#d6e6dd",
@@ -245,10 +245,35 @@ def bake_modifiers(obj):
     obj.vertex_groups.clear()
 
 
-def rig_character(body, shirt, root, wave_shoulder, wave_elbow):
+def smooth_weights(ob, repeat=6, factor=0.5):
+    """Average each vertex's bone weights with its neighbours' (like Weight Paint > Smooth), then normalise."""
+    me = ob.data
+    nb = [[] for _ in me.vertices]
+    for e in me.edges:
+        a, b = e.vertices
+        nb[a].append(b)
+        nb[b].append(a)
+    G = len(ob.vertex_groups)
+    w = [[0.0] * G for _ in me.vertices]
+    for v in me.vertices:
+        for g in v.groups:
+            w[v.index][g.group] = g.weight
+    for _ in range(repeat):
+        w = [[(1 - factor) * w[i][k] + factor * sum(w[j][k] for j in nb[i]) / len(nb[i]) if nb[i] else w[i][k] for k in range(G)]
+             for i in range(len(w))]
+    for i, row in enumerate(w):
+        tot = sum(row) or 1.0
+        for k, val in enumerate(row):
+            if val / tot > 0.001:
+                ob.vertex_groups[k].add([i], val / tot, "REPLACE")
+            else:
+                ob.vertex_groups[k].remove([i])
+
+
+def rig_character(body, shirt, root, wave_shoulder, wave_elbow, wave_wrist):
     """Give the body a real skeleton: the Skin modifier's own armature (one bone per skin edge), with the body and
     the tee bound to it by automatic weights, so an arm bends as one continuous piece and the sleeve follows.
-    Renames the waving arm's bones to char_wave_shoulder / char_wave_elbow for the web page."""
+    Renames the waving arm's bones to char_wave_shoulder / _elbow / _wrist for the web page."""
     with bpy.context.temp_override(active_object=body, object=body, selected_objects=[body], selected_editable_objects=[body]):
         bpy.ops.object.skin_armature_create(modifier="Skin")
     rig = next(m.object for m in body.modifiers if m.type == "ARMATURE")
@@ -268,15 +293,41 @@ def rig_character(body, shirt, root, wave_shoulder, wave_elbow):
         return min(bones, key=lambda b: (b.head_local - p).length)
     nearest(wave_shoulder).name = "char_wave_shoulder"
     nearest(wave_elbow).name = "char_wave_elbow"
-    for ob in (body, shirt, rig):
-        ob.select_set(True)
-    bpy.context.view_layer.objects.active = rig
-    with bpy.context.temp_override(active_object=rig, object=rig, selected_objects=[body, shirt, rig],
-                                   selected_editable_objects=[body, shirt, rig]):
+    nearest(wave_wrist).name = "char_wave_wrist"
+    rig.data.bones["char_wave_shoulder"].parent.name = "char_wave_clavicle"  # lifts a little as the arm goes up
+    # 1) the body gets automatic (heat) weights, then smoothed so the shoulder bends without pinching
+    with bpy.context.temp_override(active_object=rig, object=rig, selected_objects=[body, rig], selected_editable_objects=[body, rig]):
         bpy.ops.object.parent_set(type="ARMATURE_AUTO")
-    for ob in (body, shirt, rig):
-        ob.select_set(False)
-    for ob in (body, shirt):  # same local space as the rig: drop the parent-inverse the operator computed
+    smooth_weights(body, repeat=6)
+    # 2) the tee copies the body's weights from the nearest skin under it, so each sleeve rides its own arm
+    #    (heat weights on the voxel tee left the raised sleeve stuck to the chest)
+    for g in body.vertex_groups:
+        shirt.vertex_groups.new(name=g.name)
+    dt = shirt.modifiers.new("Weights", "DATA_TRANSFER")
+    dt.object, dt.use_vert_data, dt.data_types_verts = body, True, {"VGROUP_WEIGHTS"}
+    dt.vert_mapping = "POLYINTERP_NEAREST"
+    dt.use_object_transform = False  # both meshes are in the character's local space
+    dt.layers_vgroup_select_src, dt.layers_vgroup_select_dst = "ALL", "NAME"
+    with bpy.context.temp_override(active_object=shirt, object=shirt):
+        bpy.ops.object.modifier_apply(modifier=dt.name)
+    # the arms hang beside the torso, so "nearest skin" hands the tee's flanks to the arms: outside the sleeves,
+    # keep only spine weights (falling back to the spine bone at that height), then soften the seam
+    arm_g = {g.index for g in shirt.vertex_groups if abs(rig.data.bones[g.name].tail_local.x) > 0.15}  # clavicles + arms
+    spine = sorted((b for b in rig.data.bones if abs(b.head_local.x) < 0.01 and abs(b.tail_local.x) < 0.01), key=lambda b: b.head_local.z)
+    for v in shirt.data.vertices:
+        if abs(v.co.x) > 0.19 and v.co.z > 1.24:  # sleeve: leave on the arm
+            continue
+        keep = [(g.group, g.weight) for g in v.groups if g.group not in arm_g]
+        for gi in [g.group for g in v.groups if g.group in arm_g]:  # read indices first: removing invalidates v.groups
+            shirt.vertex_groups[gi].remove([v.index])
+        if sum(w for _, w in keep) < 1e-3:
+            b = next((b for b in spine if b.tail_local.z > v.co.z), spine[-1])
+            shirt.vertex_groups[b.name].add([v.index], 1.0, "REPLACE")
+    smooth_weights(shirt, repeat=3)
+    for ob in (body, shirt):  # same local space as the rig: no parent-inverse
+        if not any(m.type == "ARMATURE" for m in ob.modifiers):
+            ob.modifiers.new("Armature", "ARMATURE").object = rig
+        ob.parent = rig
         ob.matrix_parent_inverse.identity()
         ob.matrix_basis.identity()
     return rig
@@ -523,7 +574,7 @@ def build_building():
 
 def build_storefront():
     use_collection("Storefront")
-    frame = mat("frame", rough=0.12, metal=1.0)  # polished aluminium
+    frame = mat("frame", rough=0.28, metal=0.7)  # bright silver aluminium: light base, soft sheen (reads light on the web too)
     glass = mat("glass", rough=0.05, alpha=0.12)
 
     box("beam_top", (6.2 + EXTRA_W, 0.3, 0.12), (EXTRA_W / 2, 0.05, 3.7), frame, bevel=0.02)
@@ -1149,7 +1200,8 @@ def build_interior():
     sleeve = [(x, y, z, rx + 0.03, ry + 0.028) for x, y, z, rx, ry in arm[:2]]
     tee_parts.append(skin_body("char_tee_sleeves", *skeleton(1, sleeve, None), tee, me))
     shirt = fuse("char_tee", tee_parts, tee, me, voxel=0.006, smooth=6)
-    rig_character(body, shirt, me, wave_shoulder=(-arm[0][0], arm[0][1], arm[0][2]), wave_elbow=(-arm[2][0], arm[2][1], arm[2][2]))
+    rig_character(body, shirt, me, wave_shoulder=(-arm[0][0], arm[0][1], arm[0][2]), wave_elbow=(-arm[2][0], arm[2][1], arm[2][2]),
+                  wave_wrist=(-arm[3][0], arm[3][1], arm[3][2]))
     # jeans: rounded-box hips + two straight wide legs, fused
     jeans_parts = [box("char_jeans_hips", (0.34, 0.21, 0.22), (0, 0, 0.92), jeans, parent=me, bevel=0.08)]
     for i, sx in enumerate((-1, 1)):
