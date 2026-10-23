@@ -34,7 +34,7 @@ export const cards = {
     body: "Say hello or ask about a project.",
     links: [
       { label: "GitHub", url: "https://github.com/PongsakornNaklang" },
-      // { label: "Email", url: "mailto:you@example.com" }, // add the address you want public
+      { label: "Email", url: "mailto:pongsakornnaklang@gmail.com" },
     ],
   },
 };
