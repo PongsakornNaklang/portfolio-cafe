@@ -426,6 +426,7 @@ def build_storefront():
     box("case_plinth", (3.05, 0.6, 0.2), (-1.5, 0.02, 0.25), mat("concrete"), bevel=0.02)
     # soft pale-yellow backlight: a glowing back panel plus warm LED strips tucked under each shelf front
     box("case_back", (2.96, 0.04, 1.56), (-1.5, 0.28, 1.15), mat("case_glow", color="#ffe9a8", rough=0.5, emit=1.6), bevel=0)
+    text("case_label", "PROJECTS", 0.1, (-2.9, 0.255, 1.88), mat("ink", rough=0.6), extrude=0.004, fonts=SIGN_FONTS)  # top-left of the case
     for name, z in (("case_led_low", 0.36), ("case_led_mid", 1.11), ("case_led_top", 1.93)):
         box(name, (2.9, 0.015, 0.012), (-1.5, -0.2, z), mat("case_led", color="#ffe29a", emit=6.0), bevel=0)
     box("case_shelf_low", (2.96, 0.5, 0.05), (-1.5, 0.02, 0.4), mat("plywood", rough=0.7), bevel=0.01)
@@ -715,21 +716,6 @@ def steel_stool(name, loc):
     for i, (x, y) in enumerate(((0.1, 0.1), (-0.1, 0.1), (0.1, -0.1), (-0.1, -0.1))):
         cyl(f"{name}_leg_{i}", 0.011, 0.45, (x * 1.15, y * 1.15, 0.215), steel, parent=g, rot=splay(x, y, 8))
     ring(f"{name}_ring", 0.15, 0.007, (0, 0, 0.2), steel, parent=g)
-    return g
-
-
-def boombox(name, loc, k=1.0, parent=None):
-    g = empty(name, loc, parent=parent)
-    st, blk = mat("steel", rough=0.3, metal=0.7), mat("black", rough=0.5)
-    box(f"{name}_body", (0.62 * k, 0.2 * k, 0.32 * k), (0, 0, 0.16 * k), st, parent=g, bevel=0.04 * k)
-    for i, x in enumerate((-0.19, 0.19)):
-        cyl(f"{name}_cone_{i}", 0.1 * k, 0.02 * k, (x * k, -0.105 * k, 0.16 * k), blk, parent=g, rot=(90, 0, 0))
-        cyl(f"{name}_cap_{i}", 0.03 * k, 0.03 * k, (x * k, -0.115 * k, 0.16 * k), st, parent=g, rot=(90, 0, 0))
-    box(f"{name}_door", (0.16 * k, 0.01 * k, 0.1 * k), (0, -0.105 * k, 0.2 * k), blk, parent=g, bevel=0.005 * k)
-    box(f"{name}_keys", (0.16 * k, 0.04 * k, 0.02 * k), (0, -0.04 * k, 0.33 * k), mat("stool_red", rough=0.4), parent=g, bevel=0.004 * k)
-    for i, x in enumerate((-0.2, 0.2)):
-        box(f"{name}_post_{i}", (0.02 * k, 0.02 * k, 0.08 * k), (x * k, 0, 0.36 * k), st, parent=g, bevel=0.004 * k)
-    cyl(f"{name}_bar", 0.012 * k, 0.42 * k, (0, 0, 0.4 * k), st, parent=g, rot=(0, 90, 0))
     return g
 
 
@@ -1167,18 +1153,6 @@ def build_projects():
             box(f"SLOT_{i + 1:02d}_riser", (0.3, 0.22, 0.04), (0, 0, 0.02), mat("plywood", rough=0.7), parent=slot, bevel=0.01)
 
 
-def case_decor():
-    """Tapes and a mini boombox between the project slots, so the case never looks empty."""
-    use_collection("Projects")
-    for i, (x, z) in enumerate(((-2.0, 1.175), (-1.0, 1.175), (-2.0, 0.425), (-1.0, 0.425))):
-        if i % 3 == 0:
-            for k, col in enumerate(("stool_red", "white", "stool_blue")):
-                box(f"case_tape_{i}_{k}", (0.16, 0.11, 0.025), (x, 0.0, z + 0.0125 + k * 0.026), mat(col, rough=0.45),
-                    bevel=0.004, rot=(0, 0, k * 7))
-        else:
-            boombox(f"case_boombox_{i}", (x, 0.0, z), k=0.4)
-
-
 # ---------------------------------------------------------------- light, camera, render
 
 def build_rig(time, interior_light):
@@ -1314,7 +1288,6 @@ def main():
     build_storefront()
     interior_light = build_interior()
     build_projects()
-    case_decor()
     build_rig(args.time, interior_light)
     bpy.context.scene.camera = bpy.data.objects["CAM_" + args.cam]
     setup_render()

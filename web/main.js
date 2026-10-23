@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { cards, site } from "./content.js";
 
@@ -17,7 +18,8 @@ document.body.style.background = "#" + P.sky.toString(16).padStart(6, "0");
 
 // ---------------------------------------------------------------- renderer, scene, lights
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const phone = matchMedia("(pointer: coarse)").matches || Math.min(innerWidth, innerHeight) < 600;
+renderer.setPixelRatio(Math.min(devicePixelRatio, phone ? 1.5 : 2)); // phones: fewer pixels, steadier frame rate
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.NoToneMapping; // like Blender's "Standard" view: keeps the sign's lemon yellow saturated
 renderer.shadowMap.enabled = true;
@@ -35,7 +37,7 @@ const sun = new THREE.DirectionalLight(P.sun, P.sunI);
 sun.position.set(...P.dir).multiplyScalar(30);
 sun.target.position.set(0.9, 0, 0);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.setScalar(phone ? 1024 : 2048);
 Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 12, bottom: -6, near: 1, far: 70 });
 sun.shadow.bias = -0.0004;
 sun.shadow.normalBias = 0.02;
@@ -51,7 +53,9 @@ const camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.1, 20
 
 // ---------------------------------------------------------------- load the shop
 const [gltf, rig] = await Promise.all([
-  new GLTFLoader().loadAsync("storefront.glb"),
+  new GLTFLoader()
+    .setDRACOLoader(new DRACOLoader().setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/gltf/"))
+    .loadAsync("storefront.glb"),
   fetch("rig.json").then((r) => r.json()),
 ]);
 scene.add(gltf.scene);
@@ -78,7 +82,10 @@ function placeCamera() {
   progress += (t - progress) * 0.12; // a little lag so the walk feels like steps, not a slider
   camera.position.copy(walk.getPoint(progress));
   camera.lookAt(shopFront.clone().setY(THREE.MathUtils.lerp(2.6, 1.9, ease(progress))));
-  camera.fov = THREE.MathUtils.lerp(rig.cams.CAM_front.fov, rig.cams.CAM_close.fov, ease(progress));
+  // the Blender shots are framed for 4:3; on a tall phone screen widen the view so the shop still fits across
+  const fov = THREE.MathUtils.lerp(rig.cams.CAM_front.fov, rig.cams.CAM_close.fov, ease(progress));
+  const k = Math.max(1, (4 / 3) / camera.aspect);
+  camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(fov) / 2) * k));
   camera.updateProjectionMatrix();
   document.getElementById("hint").style.opacity = t > 0.9 ? 0 : 1;
 }
@@ -117,7 +124,7 @@ addEventListener("pointermove", (e) => {
 
 let bubble = null;
 addEventListener("click", (e) => {
-  if (bubble?.contains(e.target)) return;
+  if (bubble?.contains(e.target) || e.target.closest?.("#tour, #help")) return;
   bubble?.remove();
   bubble = null;
   const o = hotspotAt(e.clientX, e.clientY);
@@ -148,6 +155,41 @@ function showBubble(c, x, y, ttl = 0) {
   if (ttl) { const b = bubble; setTimeout(() => { b.remove(); if (bubble === b) bubble = null; }, ttl); }
 }
 addEventListener("keydown", (e) => { if (e.key === "Escape") { bubble?.remove(); bubble = null; } });
+
+// ---------------------------------------------------------------- first-visit tutorial (reopen with the ? button)
+const STEPS = [
+  { icon: "↓", title: "Walk up to the shop", body: "Scroll (or swipe) down to cross the street and reach the window." },
+  { icon: "☝︎", title: "Tap what looks interesting", body: "The iPod in the case is a project. The person behind the counter, the menu stand and the A-frame sign all have something to say." },
+  { icon: "♪", title: "Music's on the house", body: "Tap the record player on the table inside to turn the music on or off." },
+];
+function startTour(force = false) {
+  let seen = false;
+  try { seen = localStorage.getItem("nakang-tour") === "done"; } catch {}
+  if (seen && !force) return;
+  const tour = document.getElementById("tour"), next = document.getElementById("tour-next");
+  let i = 0;
+  const show = () => {
+    const s = STEPS[i];
+    document.getElementById("tour-step").textContent = `${i + 1} / ${STEPS.length}`;
+    document.getElementById("tour-icon").textContent = s.icon;
+    document.getElementById("tour-title").textContent = s.title;
+    document.getElementById("tour-body").textContent = s.body;
+    next.textContent = i === STEPS.length - 1 ? "Let's go" : "Next";
+    const b = tour.querySelector(".bubble");
+    b.style.animation = "none"; b.offsetWidth; b.style.animation = ""; // replay the pop for each step
+  };
+  const close = () => {
+    tour.hidden = true;
+    try { localStorage.setItem("nakang-tour", "done"); } catch {}
+  };
+  next.onclick = (e) => { e.stopPropagation(); i < STEPS.length - 1 ? (i++, show()) : close(); };
+  document.getElementById("tour-skip").onclick = (e) => { e.stopPropagation(); close(); };
+  tour.onclick = (e) => { if (e.target === tour) close(); };
+  tour.hidden = false;
+  show();
+  next.focus();
+}
+document.getElementById("help").onclick = (e) => { e.stopPropagation(); startTour(true); };
 
 // ---------------------------------------------------------------- music: the record player toggles it
 let audio = null, synth = null;
@@ -224,6 +266,7 @@ addEventListener("resize", () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
+startTour(); // after everything above is defined (STEPS, handlers)
 renderer.setAnimationLoop(() => {
   placeCamera();
   renderer.render(scene, camera);

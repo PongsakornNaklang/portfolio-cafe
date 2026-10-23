@@ -15,7 +15,9 @@ dg = bpy.context.evaluated_depsgraph_get()
 
 # glTF has no text objects: bake the sign and card text into meshes
 for ob in [o for o in bpy.data.objects if o.type == "FONT"]:
-    me = bpy.data.meshes.new_from_object(ob.evaluated_get(dg))
+    ob.data.resolution_u, ob.data.bevel_resolution = 3, 1  # letters read the same with far fewer curve steps
+    bpy.context.view_layer.update()
+    me = bpy.data.meshes.new_from_object(ob.evaluated_get(bpy.context.evaluated_depsgraph_get()))
     new = bpy.data.objects.new(ob.name, me)
     new.matrix_world = ob.matrix_world
     for c in ob.users_collection:
@@ -55,5 +57,7 @@ bpy.ops.export_scene.gltf(
     export_cameras=False,
     export_lights=False,     # the page lights the scene itself (sun, sky, interior lamps)
     export_yup=True,
+    export_draco_mesh_compression_enable=True,  # the page loads it with three's DRACOLoader
+    export_draco_mesh_compression_level=7,
 )
 print("exported", out_dir)

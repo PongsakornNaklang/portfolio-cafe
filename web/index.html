@@ -32,6 +32,20 @@
     .bubble .x { position: absolute; top: 8px; right: 10px; border: 0; background: none; font-size: 20px; line-height: 1; cursor: pointer; color: #7a7266; }
     @keyframes pop { from { transform: scale(.6); opacity: 0; } }
     @media (prefers-reduced-motion: reduce) { .bubble { animation: none; } }
+    /* first-visit tutorial */
+    #tour { position: fixed; inset: 0; display: grid; place-items: end center; padding: 0 16px 32px; background: rgba(20,18,16,.35); z-index: 5; }
+    #tour[hidden] { display: none; }
+    #tour .bubble { position: static; animation-duration: .28s; display: flex; flex-direction: column; min-height: 250px; } /* same height every step, so Next stays under the thumb */
+    #tour .bubble::after { display: none; }
+    #tour .step { font-size: 12px; color: #7a7266; margin-bottom: 4px; letter-spacing: .04em; }
+    #tour .icon { font-size: 34px; line-height: 1; margin-bottom: 8px; }
+    #tour .row { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 14px; }
+    #tour button { font: 600 14px "Anuphan", sans-serif; border: 0; cursor: pointer; border-radius: 999px; padding: 7px 16px; }
+    #tour .skip { background: none; color: #7a7266; padding-left: 0; }
+    #tour .next { background: var(--sign); color: var(--ink); }
+    #help { position: fixed; right: 16px; bottom: 20px; width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--paper);
+            box-shadow: 0 4px 14px rgba(0,0,0,.15); font: 800 18px "Archivo", sans-serif; cursor: pointer; z-index: 4; }
+    #hint { white-space: nowrap; }
     #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #bfe3ff; font: 800 22px "Archivo", sans-serif;
                font-stretch: 125%; transition: opacity .5s; }
   </style>
@@ -46,6 +60,16 @@
   <div id="scroll"></div>
   <div id="hint">Scroll to walk to the shop ↓</div>
   <div id="tip"></div>
+  <button id="help" aria-label="How to use this page">?</button>
+  <div id="tour" hidden role="dialog" aria-modal="true" aria-labelledby="tour-title">
+    <div class="bubble">
+      <div class="step" id="tour-step"></div>
+      <div class="icon" id="tour-icon" aria-hidden="true"></div>
+      <h2 id="tour-title"></h2>
+      <p id="tour-body"></p>
+      <div class="row"><button class="skip" id="tour-skip">Skip</button><button class="next" id="tour-next">Next</button></div>
+    </div>
+  </div>
   <div id="loading">NAKANG</div>
   <script type="module" src="main.js"></script>
 </body>
