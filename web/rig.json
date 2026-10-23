@@ -1,0 +1,110 @@
+{
+ "walk": [
+  [
+   -14.0,
+   1.6,
+   6.5
+  ],
+  [
+   -8.0,
+   1.6,
+   6.2
+  ],
+  [
+   -3.0,
+   1.6,
+   5.6
+  ],
+  [
+   0.9,
+   1.6,
+   4.4
+  ]
+ ],
+ "cams": {
+  "CAM_front": {
+   "pos": [
+    0.9,
+    2.9,
+    17.5
+   ],
+   "dir": [
+    0.0,
+    -0.017,
+    -1.0
+   ],
+   "fov": 26.99
+  },
+  "CAM_close": {
+   "pos": [
+    0.6,
+    2.0,
+    7.5
+   ],
+   "dir": [
+    0.0,
+    -0.052,
+    -0.999
+   ],
+   "fov": 37.85
+  }
+ },
+ "hotspots": {
+  "HOT_aframe": {
+   "hotspot": "hello",
+   "pos": [
+    -3.6,
+    0.15,
+    0.85
+   ]
+  },
+  "HOT_board": {
+   "hotspot": "guestbook",
+   "pos": [
+    4.9,
+    1.3,
+    -1.75
+   ]
+  },
+  "HOT_character": {
+   "hotspot": "about",
+   "pos": [
+    -1.0,
+    0.75,
+    -1.45
+   ]
+  },
+  "HOT_door": {
+   "hotspot": "stickers",
+   "pos": [
+    4.16,
+    0.2,
+    0.02
+   ]
+  },
+  "HOT_menu": {
+   "hotspot": "skills",
+   "pos": [
+    0.85,
+    0.35,
+    0.75
+   ]
+  },
+  "HOT_project_iport": {
+   "hotspot": "project:iport",
+   "pos": [
+    -2.5,
+    1.175,
+    -0.0
+   ]
+  },
+  "HOT_record": {
+   "hotspot": "music",
+   "pos": [
+    1.55,
+    0.94,
+    -2.65
+   ]
+  }
+ }
+}

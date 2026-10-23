@@ -43,3 +43,11 @@ The sign uses `fonts/ArchivoExpanded-ExtraBold.ttf`, the static Archivo instance
 - `HOT_character`: you, behind the counter
 - `HOT_project_iport`: the iPod classic
 - Plants and stools: simple ball/cone shapes for now
+
+## Web export
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender -b out/storefront_day.blend -P blender/export_web.py -- web
+```
+
+This writes `web/storefront.glb` (text baked to meshes, character decimated, `hotspot` kept as glTF extras) and `web/rig.json` (camera shots and hotspot positions). The page in `web/` is static: serve the folder with any static server, e.g. `python3 -m http.server -d web`. Card text lives in `web/content.js`. Add `?time=day|sunset|night` to the URL to override the visitor's clock.

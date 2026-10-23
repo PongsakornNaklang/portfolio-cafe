@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NAKANG</title>
+  <meta name="description" content="Pongsakorn Naklang, software developer: a little 3D shop you can walk up to.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anuphan:wght@400;600&family=Archivo:wdth,wght@125,800&display=swap">
+  <style>
+    :root { --ink: #2b2420; --paper: #fffdf7; --sign: #ffe100; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: #bfe3ff; color: var(--ink); font: 15px/1.55 "Anuphan", system-ui, sans-serif; }
+    canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+    #scroll { height: 400vh; }                       /* scroll distance = the walk to the shop */
+    #hint { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 6px 14px; border-radius: 999px;
+            background: var(--paper); box-shadow: 0 4px 14px rgba(0,0,0,.15); font-weight: 600; transition: opacity .4s; pointer-events: none; }
+    #tip { position: fixed; padding: 3px 10px; border-radius: 999px; background: var(--ink); color: var(--paper); font-size: 13px;
+           pointer-events: none; opacity: 0; transform: translate(-50%, -150%); transition: opacity .15s; white-space: nowrap; }
+    .bubble { position: fixed; width: min(320px, calc(100vw - 32px)); padding: 16px 18px 18px; border-radius: 20px; background: var(--paper);
+              box-shadow: 0 10px 30px rgba(0,0,0,.2); transform-origin: 50% 100%; animation: pop .22s cubic-bezier(.2,1.4,.4,1); }
+    .bubble::after { content: ""; position: absolute; left: var(--tail, 50%); bottom: -9px; width: 18px; height: 18px; background: var(--paper);
+                     transform: translateX(-50%) rotate(45deg); border-radius: 0 0 4px 0; }
+    .bubble h2 { margin: 0 0 6px; font: 800 20px/1.1 "Archivo", sans-serif; font-stretch: 125%; }
+    .bubble p { margin: 0; }
+    .bubble table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+    .bubble td { padding: 5px 0; border-bottom: 1px dashed #d9d3c4; }
+    .bubble td + td { text-align: right; color: #7a7266; }
+    .bubble a.btn { display: inline-block; margin-top: 12px; padding: 7px 16px; border-radius: 999px; background: var(--sign); color: var(--ink);
+                    font-weight: 600; text-decoration: none; }
+    .bubble .x { position: absolute; top: 8px; right: 10px; border: 0; background: none; font-size: 20px; line-height: 1; cursor: pointer; color: #7a7266; }
+    @keyframes pop { from { transform: scale(.6); opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { .bubble { animation: none; } }
+    #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #bfe3ff; font: 800 22px "Archivo", sans-serif;
+               font-stretch: 125%; transition: opacity .5s; }
+  </style>
+  <script type="importmap">
+    { "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    } }
+  </script>
+</head>
+<body>
+  <div id="scroll"></div>
+  <div id="hint">Scroll to walk to the shop ↓</div>
+  <div id="tip"></div>
+  <div id="loading">NAKANG</div>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
