@@ -130,14 +130,30 @@ addEventListener("click", (e) => {
   const o = hotspotAt(e.clientX, e.clientY);
   if (!o) return;
   const key = o.userData.hotspot;
-  feedback(o);
-  if (key === "music") return toggleMusic(e.clientX, e.clientY);
+  feedback(o, !["hello", "skills", "stickers"].includes(key)); // signs and the door: sound + buzz only, no bounce
+  tip.style.opacity = 0;
+  const r = screenRect(o);
+  if (key === "music") return toggleMusic(r);
   if (key === "about") wave();
   const c = cards[key];
-  if (c) showBubble(c, e.clientX, e.clientY);
+  if (c) showBubble(c, r);
 });
 
-function showBubble(c, x, y, ttl = 0) {
+// the object's on-screen box, so a bubble can sit next to it instead of on top of it
+const _box = new THREE.Box3(), _v = new THREE.Vector3();
+function screenRect(o) {
+  _box.setFromObject(o);
+  const r = { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
+  for (let i = 0; i < 8; i++) {
+    _v.set(i & 1 ? _box.max.x : _box.min.x, i & 2 ? _box.max.y : _box.min.y, i & 4 ? _box.max.z : _box.min.z).project(camera);
+    const x = (_v.x + 1) / 2 * innerWidth, y = (1 - _v.y) / 2 * innerHeight;
+    r.left = Math.min(r.left, x); r.right = Math.max(r.right, x); r.top = Math.min(r.top, y); r.bottom = Math.max(r.bottom, y);
+  }
+  return r;
+}
+
+// above the object if it fits, else beside it (the side with more room), else below; never over it
+function showBubble(c, r, ttl = 0) {
   bubble = document.createElement("div");
   bubble.className = "bubble";
   bubble.setAttribute("role", "dialog");
@@ -149,11 +165,21 @@ function showBubble(c, x, y, ttl = 0) {
     (c.link ? `<a class="btn" href="${esc(c.link.url)}" target="_blank" rel="noopener">${esc(c.link.label)} ↗</a>` : "");
   document.body.append(bubble);
   bubble.querySelector(".x").onclick = () => { bubble.remove(); bubble = null; };
-  const w = bubble.offsetWidth, hgt = bubble.offsetHeight;
-  const left = THREE.MathUtils.clamp(x - w / 2, 16, innerWidth - w - 16);
+  const w = bubble.offsetWidth, hgt = bubble.offsetHeight, gap = 20, m = 16;
+  const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
+  const clampX = (x) => THREE.MathUtils.clamp(x, m, innerWidth - w - m);
+  const clampY = (y) => THREE.MathUtils.clamp(y, m, innerHeight - hgt - m);
+  let left, top, tail = "down";
+  if (r.top - gap - hgt >= m) { left = clampX(cx - w / 2); top = r.top - gap - hgt; }
+  else if (Math.max(r.left, innerWidth - r.right) - gap - w >= m) {
+    const right = innerWidth - r.right >= r.left;
+    left = right ? r.right + gap : r.left - gap - w; top = clampY(cy - hgt / 2); tail = right ? "left" : "right";
+  } else if (innerHeight - r.bottom - gap - hgt >= m) { left = clampX(cx - w / 2); top = r.bottom + gap; tail = "up"; }
+  else { left = clampX(cx - w / 2); top = m; tail = "none"; } // tiny screen and a huge object: pin to the top
   bubble.style.left = left + "px";
-  bubble.style.top = Math.max(16, y - hgt - 22) + "px";
-  bubble.style.setProperty("--tail", THREE.MathUtils.clamp(x - left, 24, w - 24) + "px");
+  bubble.style.top = top + "px";
+  bubble.dataset.tail = tail;
+  bubble.style.setProperty("--tail", (tail === "down" || tail === "up" ? THREE.MathUtils.clamp(cx - left, 24, w - 24) : THREE.MathUtils.clamp(cy - top, 24, hgt - 24)) + "px");
   if (ttl) { const b = bubble; setTimeout(() => { b.remove(); if (bubble === b) bubble = null; }, ttl); }
 }
 addEventListener("keydown", (e) => { if (e.key === "Escape") { bubble?.remove(); bubble = null; } });
@@ -196,7 +222,7 @@ document.getElementById("help").onclick = (e) => { e.stopPropagation(); startTou
 // ---------------------------------------------------------------- click feedback: a soft pop, a tiny buzz on phones, a squash-bounce
 let fx = null;
 const bouncing = new Map();
-function feedback(o) {
+function feedback(o, bounce = true) {
   navigator.vibrate?.(12);
   try {
     fx ??= new AudioContext();
@@ -209,6 +235,7 @@ function feedback(o) {
     osc.start(t);
     osc.stop(t + 0.13);
   } catch {}
+  if (!bounce) return;
   if (!bouncing.has(o)) bouncing.set(o, { rest: o.scale.clone(), t0: 0 });
   bouncing.get(o).t0 = performance.now();
 }
@@ -223,15 +250,15 @@ function animateBounces(now) {
 
 // ---------------------------------------------------------------- music: the record player toggles it
 let audio = null, synth = null;
-function toggleMusic(x, y) {
+function toggleMusic(r) {
   if (site.musicUrl) {
     audio ??= Object.assign(new Audio(site.musicUrl), { loop: true, volume: 0.5 });
     audio.paused ? audio.play() : audio.pause();
-    return showBubble({ title: audio.paused ? "Music off" : "♪ Music on" }, x, y, 1400);
+    return showBubble({ title: audio.paused ? "Music off" : "♪ Music on" }, r, 1400);
   }
   synth ??= lofiSynth();
   synth.toggle();
-  showBubble({ title: synth.on ? "♪ Music on" : "Music off" }, x, y, 1400);
+  showBubble({ title: synth.on ? "♪ Music on" : "Music off" }, r, 1400);
 }
 
 // ponytail: a tiny built-in lofi loop (soft chords + dusty beat) until a real track is set in content.js

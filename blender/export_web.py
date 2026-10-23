@@ -19,6 +19,7 @@ for ob in [o for o in bpy.data.objects if o.type == "FONT"]:
     bpy.context.view_layer.update()
     me = bpy.data.meshes.new_from_object(ob.evaluated_get(bpy.context.evaluated_depsgraph_get()))
     new = bpy.data.objects.new(ob.name, me)
+    new.parent = ob.parent  # keep sign text attached to its board
     new.matrix_world = ob.matrix_world
     for c in ob.users_collection:
         c.objects.link(new)

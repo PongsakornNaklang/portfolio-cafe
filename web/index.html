@@ -22,6 +22,11 @@
               box-shadow: 0 10px 30px rgba(0,0,0,.2); transform-origin: 50% 100%; animation: pop .22s cubic-bezier(.2,1.4,.4,1); }
     .bubble::after { content: ""; position: absolute; left: var(--tail, 50%); bottom: -9px; width: 18px; height: 18px; background: var(--paper);
                      transform: translateX(-50%) rotate(45deg); border-radius: 0 0 4px 0; }
+    .bubble[data-tail="up"]::after { bottom: auto; top: -9px; }
+    .bubble[data-tail="left"]::after, .bubble[data-tail="right"]::after { left: auto; top: var(--tail); bottom: auto; transform: translateY(-50%) rotate(45deg); }
+    .bubble[data-tail="left"]::after { left: -9px; }
+    .bubble[data-tail="right"]::after { right: -9px; }
+    .bubble[data-tail="none"]::after { display: none; }
     .bubble h2 { margin: 0 0 6px; font: 800 20px/1.1 "Archivo", sans-serif; font-stretch: 125%; }
     .bubble p { margin: 0; }
     .bubble table { width: 100%; border-collapse: collapse; margin-top: 4px; }
