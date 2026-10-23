@@ -481,8 +481,9 @@ def build_street():
 
     # Thai street props: concrete pole with a knot of cables, a meatball cart, a red Thai Post mailbox
     power_pole("power_pole", (-4.15, -2.75, 0.15))
-    thai_mailbox("mailbox", (-4.3, -0.95, 0.15))
-    meatball_cart("cart", (5.35 + EXTRA_W - 1.8, -1.75, 0.15))
+    thai_mailbox("HOT_mailbox", (-4.3, -0.95, 0.15))
+    monobloc_chair("monobloc", (6.1, -1.45, 0.15), "stool_blue", rot=-15)  # right of the cart
+    meatball_cart("cart", (5.0, -1.75, 0.15))
 
 
 def power_pole(name, loc):
@@ -517,8 +518,8 @@ def power_pole(name, loc):
 
 
 def thai_mailbox(name, loc):
-    """Red Thai Post mailbox: rounded-top box on a short post, posting slot, white band and notice plate."""
-    g = empty(name, loc)
+    """Red Thai Post mailbox (hotspot 'contact'): rounded-top box on a short post, posting slot, white band, notice plate."""
+    g = empty(name, loc, hotspot="contact")
     red, white = mat("post_red", color="#d42a2a", rough=0.4), mat("white", rough=0.4)
     cyl(f"{name}_post", 0.06, 0.6, (0, 0, 0.3), mat("black", rough=0.5), parent=g)
     box(f"{name}_body", (0.42, 0.36, 0.55), (0, 0, 0.88), red, parent=g, bevel=0.03)
@@ -526,6 +527,26 @@ def thai_mailbox(name, loc):
     box(f"{name}_slot", (0.2, 0.02, 0.025), (0, -0.185, 1.05), mat("black"), parent=g, bevel=0.005)
     box(f"{name}_plate", (0.22, 0.012, 0.16), (0, -0.183, 0.82), white, parent=g, bevel=0.01)
     box(f"{name}_band", (0.42, 0.012, 0.035), (0, -0.183, 1.15), white, parent=g, bevel=0.005)
+    return g
+
+
+def monobloc_chair(name, loc, colour, rot=0):
+    """Thai plastic monobloc armchair: curved slotted back, arms, splayed legs."""
+    g = empty(name, loc, rot=(0, 0, rot))
+    m = mat(colour, rough=0.4)
+    box(f"{name}_seat", (0.46, 0.44, 0.04), (0, 0, 0.44), m, parent=g, bevel=0.018)
+    for i, (x, y) in enumerate(((-0.2, -0.18), (0.2, -0.18), (-0.21, 0.19), (0.21, 0.19))):
+        cyl(f"{name}_leg_{i}", 0.028, 0.45, (x * 1.06, y * 1.06, 0.215), m, parent=g, r2=0.022, rot=splay(x, y, 5))
+    # back: two rails and five slats, leaning back, wrapping round to the arms
+    for k, z in enumerate((0.88, 0.62)):
+        box(f"{name}_rail_{k}", (0.46, 0.035, 0.05), (0, 0.22 + (z - 0.6) * 0.18, z), m, parent=g, bevel=0.016, rot=(-10, 0, 0))
+    for k in range(5):
+        x = -0.16 + k * 0.08
+        box(f"{name}_slat_{k}", (0.045, 0.03, 0.28), (x, 0.23, 0.75), m, parent=g, bevel=0.012, rot=(-10, 0, 0))
+    for i, sx in enumerate((-1, 1)):
+        box(f"{name}_arm_{i}", (0.045, 0.42, 0.04), (sx * 0.235, 0.02, 0.64), m, parent=g, bevel=0.016, rot=(-6, 0, 0))
+        cyl(f"{name}_armpost_{i}", 0.02, 0.2, (sx * 0.235, -0.17, 0.54), m, parent=g)
+        box(f"{name}_wing_{i}", (0.04, 0.12, 0.3), (sx * 0.235, 0.18, 0.75), m, parent=g, bevel=0.016, rot=(-10, 0, 0))
     return g
 
 
@@ -648,12 +669,13 @@ def build_storefront():
 
     # fixed glass + door (door = entrance to the Sticker Board)
     box("glass_fixed", (1.23 + EXTRA_W, 0.02, 3.4), (1.015 + EXTRA_W / 2, 0, 1.87), glass, bevel=0)
-    door = empty("HOT_door", (2.36 + EXTRA_W, -0.02, 0.2), hotspot="stickers")
-    box("door_glass", (1.28, 0.02, 3.3), (0, 0, 1.65), glass, parent=door, bevel=0)
-    for name, size, loc in [("door_f_l", (0.06, 0.06, 3.3), (-0.64, 0, 1.65)), ("door_f_r", (0.06, 0.06, 3.3), (0.64, 0, 1.65)),
-                            ("door_f_b", (1.3, 0.06, 0.12), (0, 0, 0.06)), ("door_f_t", (1.3, 0.06, 0.06), (0, 0, 3.3))]:
+    # the door's origin is its hinge (right edge), so the page can swing it open into the shop
+    door = empty("HOT_door", (2.36 + EXTRA_W + 0.64, -0.02, 0.2), hotspot="door")
+    box("door_glass", (1.28, 0.02, 3.3), (-0.64, 0, 1.65), glass, parent=door, bevel=0)
+    for name, size, loc in [("door_f_l", (0.06, 0.06, 3.3), (-1.28, 0, 1.65)), ("door_f_r", (0.06, 0.06, 3.3), (0, 0, 1.65)),
+                            ("door_f_b", (1.3, 0.06, 0.12), (-0.64, 0, 0.06)), ("door_f_t", (1.3, 0.06, 0.06), (-0.64, 0, 3.3))]:
         box(name, size, loc, frame, parent=door, bevel=0.01)
-    cyl("door_handle", 0.025, 0.9, (-0.5, -0.1, 1.5), mat("steel", rough=0.25, metal=0.9), parent=door)
+    cyl("door_handle", 0.025, 0.9, (-1.14, -0.1, 1.5), mat("steel", rough=0.25, metal=0.9), parent=door)
     box("doormat", (1.2, 0.6, 0.02), (2.36 + EXTRA_W, -0.45, 0.36), mat("mat", rough=0.95), bevel=0.01)
 
     # floor menu stand = skills / stack
@@ -1091,11 +1113,26 @@ def chalkboard(name, loc, w, h, rot=(0, 0, 0)):
     """Guestbook board: visitors hand-write on it (hotspot 'guestbook'). Built facing -Y, bottom edge at loc."""
     g = empty(name, loc, hotspot="guestbook", rot=rot)
     box(f"{name}_frame", (w + 0.08, 0.04, h + 0.08), (0, 0, h / 2), mat("oak"), parent=g, bevel=0.01)
-    box(f"{name}_panel", (w, 0.045, h), (0, -0.005, h / 2), mat("board_blue", color="#2b4c8c", rough=0.9), parent=g, bevel=0.002)  # blank, waiting for visitors
+    box(f"{name}_panel", (w, 0.045, h), (0, -0.005, h / 2), mat("board_blue", color="#2b4c8c", rough=0.9), parent=g, bevel=0.002, uv_fit="xz")  # blank; the page paints drawings on it
     box(f"{name}_tray", (w, 0.08, 0.025), (0, -0.05, -0.02), mat("oak"), parent=g, bevel=0.006)
     for i, (x, col) in enumerate(((-0.3, "white"), (-0.22, "stool_red"), (0.4, "sign"))):
         cyl(f"{name}_chalk_{i}", 0.009, 0.08, (x, -0.06, -0.0), mat(f"chalk_{col}", color=PALETTE[col], rough=0.9),
             parent=g, rot=(0, 90, 0))
+    return g
+
+
+def wall_clock(name, loc):
+    """Round wall clock (hotspot 'clock'): red rim, pink face, green hands on pivots clock_hour / clock_minute, which the
+    page turns to the visitor's real time. Faces -Y."""
+    g = empty(name, loc, hotspot="clock")
+    cyl(f"{name}_rim", 0.25, 0.045, (0, 0, 0), mat("clock_rim", color="#d0473f", rough=0.5), parent=g, rot=(90, 0, 0))
+    cyl(f"{name}_face", 0.235, 0.012, (0, -0.02, 0), mat("clock_face", color="#e47f9f", rough=0.6), parent=g, rot=(90, 0, 0))
+    green = mat("clock_hand", color="#2f7a3a", rough=0.5)
+    for hand, length in (("hour", 0.13), ("minute", 0.19)):
+        pivot = empty(f"clock_{hand}", (0, -0.035 if hand == "hour" else -0.045, 0), parent=g)
+        box(f"clock_{hand}_hand", (0.026, 0.008, length), (0, 0, length / 2 - 0.01), green, parent=pivot, bevel=0.0039)
+    cyl(f"{name}_pin", 0.022, 0.03, (0, -0.05, 0), green, parent=g, rot=(90, 0, 0))
+    box(f"{name}_slot", (0.012, 0.004, 0.03), (0, -0.027, 0.2), mat("black"), parent=g, bevel=0.002)
     return g
 
 
@@ -1292,10 +1329,15 @@ def build_interior():
     for i, x in enumerate((-1.885, -1.815)):
         ball(f"cactus_eye_{i}", 0.013, (x, 3.995, 3.44), mat("black"))
 
-    # warm globe pendants
+    # brushed-silver dish pendants (hotspot 'lamp': click to switch each one on/off)
+    silver = mat("silver_lamp", color="#d9dcdf", rough=0.28, metal=0.9)
     for i, (x, y) in enumerate(((-0.45, 2.4), (2.1, 2.65))):
-        ball(f"pendant_globe_{i}", 0.22, (x, y, 3.15), mat("pendant", color="#ffe2b0", rough=0.4, emit=5.0))
-        cyl(f"pendant_cord_{i}", 0.01, 0.3, (x, y, 3.52), mat("black"))
+        lamp = empty(f"HOT_lamp_{i}", (x, y, 3.05), hotspot="lamp")
+        cyl(f"pendant_cord_{i}", 0.006, 0.42, (0, 0, 0.42), mat("black"), parent=lamp)
+        cyl(f"pendant_neck_{i}", 0.055, 0.17, (0, 0, 0.14), silver, parent=lamp)
+        cyl(f"pendant_dish_{i}", 0.3, 0.09, (0, 0, 0.03), silver, parent=lamp, r2=0.06, bevel=0.004)
+        cyl(f"pendant_bulb_{i}", 0.085, 0.012, (0, 0, -0.018), mat("pendant", color="#ffe2b0", rough=0.4, emit=5.0), parent=lamp)
+    wall_clock("HOT_clock", (3.55, 4.28, 2.55))
 
     # --- right: plywood centre table with steel stools, vinyl wall, records, plants
     plywood_table("center_table", (2.1, 2.65, 0.2), 1.8, 0.85)  # like the reference: birch ply, panel legs, steel stools

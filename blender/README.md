@@ -20,7 +20,7 @@ The script rebuilds the whole scene every run. Hand edits belong in the saved `.
 
 | Name / property | Meaning |
 |---|---|
-| `HOT_*` + custom property `hotspot` | Clickable. Values: `about`, `music`, `skills`, `hello`, `stickers`, `guestbook`, `project:<id>` |
+| `HOT_*` + custom property `hotspot` | Clickable. Values: `about`, `music`, `skills`, `hello`, `door`, `guestbook`, `contact`, `clock`, `lamp`, `project:<id>` |
 | `SLOT_01` … `SLOT_06` | Spots on the display shelf for projects |
 | `PATH_walk` | The route the website camera walks along, from the street to the shop |
 | `CAM_front` | Preview camera |

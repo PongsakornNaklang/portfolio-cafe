@@ -12,7 +12,7 @@
     :root { --ink: #2b2420; --paper: #fffdf7; --sign: #ffe100; }
     * { box-sizing: border-box; }
     html, body { margin: 0; background: #bfe3ff; color: var(--ink); font: 15px/1.55 "Anuphan", system-ui, sans-serif; }
-    canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+    body > canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
     #scroll { height: 400vh; }                       /* scroll distance = the walk to the shop */
     #hint { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 6px 14px; border-radius: 999px;
             background: var(--paper); box-shadow: 0 4px 14px rgba(0,0,0,.15); font-weight: 600; transition: opacity .4s; pointer-events: none; }
@@ -51,6 +51,19 @@
     #help { position: fixed; right: 16px; bottom: 20px; width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--paper);
             box-shadow: 0 4px 14px rgba(0,0,0,.15); font: 800 18px "Archivo", sans-serif; cursor: pointer; z-index: 4; }
     #hint { white-space: nowrap; }
+    /* guestbook drawing window */
+    #board { border: 0; border-radius: 20px; padding: 16px; background: var(--paper); width: min(760px, calc(100vw - 32px), calc((100dvh - 210px) * 1.5 + 44px)); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+    #board::backdrop { background: rgba(20,18,16,.45); }
+    #board h2 { margin: 0 0 4px; font: 800 20px/1.1 "Archivo", sans-serif; font-stretch: 125%; }
+    #board p { margin: 0 0 10px; color: #7a7266; font-size: 14px; }
+    #board-canvas { display: block; width: 100%; aspect-ratio: 3 / 2; border-radius: 8px; border: 6px solid #c9a46c; touch-action: none; cursor: crosshair; background: #2b4c8c; }
+    #board .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+    #board .ink { width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(0,0,0,.15); cursor: pointer; }
+    #board .ink[aria-pressed="true"] { outline: 3px solid var(--ink); outline-offset: 2px; }
+    #board .ink.eraser { background: #2b4c8c; color: #fff; font-size: 13px; }
+    #board .spacer { flex: 1; }
+    #board button.txt { font: 600 14px "Anuphan", sans-serif; border: 0; border-radius: 999px; padding: 7px 16px; cursor: pointer; background: #ece7dc; color: var(--ink); }
+    #board button.done { background: var(--sign); }
     #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #bfe3ff; font: 800 22px "Archivo", sans-serif;
                font-stretch: 125%; transition: opacity .5s; }
   </style>
@@ -75,6 +88,22 @@
       <div class="row"><button class="skip" id="tour-skip">Skip</button><button class="next" id="tour-next">Next</button></div>
     </div>
   </div>
+  <dialog id="board" aria-labelledby="board-title">
+    <h2 id="board-title">Leave a note</h2>
+    <p>Draw or write anything with your mouse or finger, then stick it on the board.</p>
+    <canvas id="board-canvas" width="900" height="600"></canvas>
+    <div class="tools">
+      <button class="ink" data-ink="#f4f2ec" style="background:#f4f2ec" aria-label="White chalk" aria-pressed="true"></button>
+      <button class="ink" data-ink="#f39cc0" style="background:#f39cc0" aria-label="Pink chalk" aria-pressed="false"></button>
+      <button class="ink" data-ink="#ffd93b" style="background:#ffd93b" aria-label="Yellow chalk" aria-pressed="false"></button>
+      <button class="ink" data-ink="#9fd0f2" style="background:#9fd0f2" aria-label="Light blue chalk" aria-pressed="false"></button>
+      <button class="ink eraser" data-ink="#2b4c8c" aria-label="Eraser" aria-pressed="false">⌫</button>
+      <span class="spacer"></span>
+      <button class="txt" id="board-clear">Clear</button>
+      <button class="txt" id="board-cancel">Cancel</button>
+      <button class="txt done" id="board-done">Stick it on the board</button>
+    </div>
+  </dialog>
   <div id="loading">NAKANG</div>
   <script type="module" src="main.js"></script>
 </body>

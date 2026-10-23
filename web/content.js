@@ -29,12 +29,12 @@ export const cards = {
     body: "A web iPod: pick a song and click through a classic iPod interface in the browser.",
     link: { label: "Open iPort", url: "https://iport-pi.vercel.app/" },
   },
-  stickers: {
-    title: "Sticker Board",
-    body: "Coming soon: design a sticker and stick it on the door.",
-  },
-  guestbook: {
-    title: "Guestbook",
-    body: "Coming soon: leave a hand-written note on the board.",
+  contact: {
+    title: "Contact",
+    body: "Say hello or ask about a project.",
+    links: [
+      { label: "GitHub", url: "https://github.com/PongsakornNaklang" },
+      // { label: "Email", url: "mailto:you@example.com" }, // add the address you want public
+    ],
   },
 };
