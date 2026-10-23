@@ -270,6 +270,32 @@ def smooth_weights(ob, repeat=6, factor=0.5):
                 ob.vertex_groups[k].remove([i])
 
 
+def use_mixamo_character(me, path):
+    """Swap the hand-built character for the Mixamo-rigged one (mixamo/waving.fbx: our character uploaded via
+    blender/export_mixamo.py, auto-rigged, with the Waving clip). The page plays the clip; frame 1 is the idle pose."""
+    for o in list(me.children_recursive):
+        bpy.data.objects.remove(o)
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.fbx(filepath=path)
+    new = [o for o in bpy.data.objects if o not in before]
+    for o in new:
+        for c in o.users_collection:
+            c.objects.unlink(o)
+        _coll["current"].objects.link(o)
+    arm = next(o for o in new if o.type == "ARMATURE")
+    arm.name = "char_mixamo"
+    for o in new:
+        if o.type == "MESH":
+            o.name = "char_mesh"
+    arm.parent = me
+    arm.matrix_parent_inverse.identity()
+    arm.location = (0, 0, 0)
+    me.scale = (1, 1, 1)  # the export already carries the 1.15 toy scale
+    if arm.animation_data and arm.animation_data.action:
+        arm.animation_data.action.name = "wave"
+    bpy.context.scene.frame_set(1)
+
+
 def rig_character(body, shirt, root, wave_shoulder, wave_elbow, wave_wrist):
     """Give the body a real skeleton: the Skin modifier's own armature (one bone per skin edge), with the body and
     the tee bound to it by automatic weights, so an arm bends as one continuous piece and the sleeve follows.
@@ -1234,6 +1260,10 @@ def build_interior():
     d = [(-0.022 + 0.044 * k / 8, 0.0) for k in range(9)][::-1] + [(0.022 * cos(radians(a_)), -0.017 * sin(radians(a_))) for a_ in range(160, 0, -20)]
     mouth = prism("char_mouth", d, 0, 0.012, mat("mouth", color="#a3262a", rough=0.45), parent=hp, bevel=0.003)
     mouth.location, mouth.rotation_euler = H(0, -0.137, 1.652), (radians(90), 0, 0)  # extrudes toward the viewer
+
+    mixamo = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "mixamo", "waving.fbx")
+    if os.path.exists(mixamo):
+        use_mixamo_character(me, mixamo)
 
     # cup shelf behind you, speakers and little friends on top
     cup_shelf("cup_shelf", (-1.6, 4.12, 1.95), 2.4, 1.3)

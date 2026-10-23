@@ -324,71 +324,44 @@ addEventListener("resize", () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 // ---------------------------------------------------------------- the character waves when you reach the window, and keeps eye contact
-// The arm is one skinned mesh: rotate its shoulder and elbow bones about the axis pointing at the viewer.
-const shoulder = scene.getObjectByName("char_wave_shoulder");
-const elbow = scene.getObjectByName("char_wave_elbow");
-const wrist = scene.getObjectByName("char_wave_wrist");
-const clavicle = scene.getObjectByName("char_wave_clavicle");
-const restQ = new Map([clavicle, shoulder, elbow, wrist].map((b) => [b, b.quaternion.clone()]));
-const toViewer = new THREE.Vector3(0, 0, -1); // the character faces +Z; this sign swings the arm up and out
-const _q = new THREE.Quaternion(), _axis = new THREE.Vector3();
-function bendBone(bone, angle) {
-  bone.parent.updateMatrixWorld(true);
-  _axis.copy(toViewer).applyQuaternion(bone.parent.getWorldQuaternion(_q).invert());
-  bone.quaternion.setFromAxisAngle(_axis, angle).multiply(restQ.get(bone));
-}
-const head = scene.getObjectByName("char_head_pivot");
-const headRest = head.quaternion.clone();
-const headAim = new THREE.Quaternion();
+// The wave is Mixamo's "Waving" clip on the auto-rigged character; its first frame doubles as the idle pose.
+const mixer = new THREE.AnimationMixer(gltf.scene);
+const waveAction = mixer.clipAction(THREE.AnimationClip.findByName(gltf.animations, "wave"));
+// always playing, parked at time 0 with timeScale 0 between waves (a finished LoopOnce action would drop to the bind pose)
+waveAction.play();
+waveAction.timeScale = 0;
+let waved = false;
+function wave() { waveAction.time = 0; waveAction.timeScale = 1; }
+
+const headBone = scene.getObjectByName("mixamorigHead");
 const D = THREE.MathUtils.degToRad;
-const clamp01 = (x) => Math.min(1, Math.max(0, x));
-const backOut = (x) => 1 + 2.2 * (x - 1) ** 3 + 1.2 * (x - 1) ** 2; // reaches the pose with a small overshoot
-let waveStart = -1, waved = false;
-function wave() { waveStart = performance.now(); }
-
-// A wave the way animators block it: upper arm out to the side, forearm upright, palm to the viewer;
-// the forearm swings from the elbow while the hand lags behind and flips at each end (overlapping action).
-// Joints start and stop in succession (shoulder -> elbow -> wrist), with a little dip before the lift.
-const W = { lift: 0.5, hold: 2.3, drop: 0.55, hz: 2.1 };
-function wavePose(t) {
-  const dip = t < 0.12 ? Math.sin((t / 0.12) * Math.PI) * D(-5) : 0;  // anticipation
-  const reach = (delay) => (t < W.hold ? backOut(clamp01((t - 0.08 - delay) / W.lift)) : 1 - ease(clamp01((t - W.hold - delay) / W.drop)));
-  const env = clamp01((t - 0.45) / 0.2) * clamp01((W.hold + 0.05 - t) / 0.2);   // waving fades in/out
-  const ph = (t - 0.45) * Math.PI * 2 * W.hz;
-  return {
-    clavicle: reach(0) * D(15),                                                  // shoulder lifts with the arm, keeps its volume
-    shoulder: dip + reach(0) * D(82) + env * Math.sin(ph + 0.6) * D(4),         // the whole arm joins in a little, leading
-    elbow: reach(0.08) * D(80) + env * Math.sin(ph) * D(20),                    // forearm swings from the elbow
-    wrist: reach(0.15) * D(-10) + env * Math.sin(ph - 1.1) * D(18),             // hand lags and flips at each end
-    tilt: Math.min(reach(0), 1) * D(5),                                          // head leans toward the raised hand
-  };
-}
-
-function animateCharacter(now) {
+const _q = new THREE.Quaternion(), _pq = new THREE.Quaternion(), _hp = new THREE.Vector3(), _dir = new THREE.Vector3();
+const forward = new THREE.Vector3(0, 0, 1); // the character faces the street (+Z)
+const look = new THREE.Quaternion();
+const headMixed = headBone.quaternion.clone(); // the clip's own head pose, before our look-at offset
+const clock = new THREE.Clock();
+function animateCharacter() {
   if (progress > 0.85 && !waved) { waved = true; wave(); }
   if (progress < 0.5) waved = false; // walk away and back to get another hello
-  const t = waveStart < 0 ? 99 : (now - waveStart) / 1000;
-  const p = t < W.hold + W.drop + 0.3 ? wavePose(t) : { clavicle: 0, shoulder: 0, elbow: 0, wrist: 0, tilt: 0 };
-  bendBone(clavicle, p.clavicle);
-  bendBone(shoulder, p.shoulder);
-  bendBone(elbow, p.elbow);
-  bendBone(wrist, p.wrist);
-  // head: turn toward the viewer, limited to a natural neck range, eased
-  head.quaternion.copy(headRest);
-  const saved = head.quaternion.clone();
-  head.lookAt(camera.position);
-  headAim.copy(head.quaternion);
-  head.quaternion.copy(saved);
-  headAim.copy(saved.clone().rotateTowards(headAim, D(35)));
-  headAim.premultiply(_q.setFromAxisAngle(_axis.set(0, 0, 1), p.tilt));
-  head.userData.q = (head.userData.q || saved.clone()).slerp(headAim, 0.08);
-  head.quaternion.copy(head.userData.q);
+  // the mixer only writes a bone when the clip value changes, so put back the clip pose before it runs,
+  // otherwise the look-at offset would stack up frame after frame while the clip stands still
+  headBone.quaternion.copy(headMixed);
+  mixer.update(Math.min(clock.getDelta(), 0.1));
+  headMixed.copy(headBone.quaternion);
+  if (waveAction.timeScale && waveAction.time > waveAction.getClip().duration - 0.1) { waveAction.timeScale = 0; waveAction.time = 0; }
+  // eye contact: turn the head toward the camera on top of the clip, within a natural neck range, eased
+  headBone.getWorldPosition(_hp);
+  _dir.subVectors(camera.position, _hp).normalize();
+  _q.setFromUnitVectors(forward, _dir);
+  look.slerp(new THREE.Quaternion().rotateTowards(_q, D(30)), 0.08);
+  headBone.parent.getWorldQuaternion(_pq);
+  headBone.quaternion.premultiply(_pq.clone().invert().multiply(look).multiply(_pq));
 }
 
 startTour(); // after everything above is defined (STEPS, handlers)
 renderer.setAnimationLoop(() => {
   placeCamera();
-  animateCharacter(performance.now());
+  animateCharacter();
   animateBounces(performance.now());
   renderer.render(scene, camera);
 });

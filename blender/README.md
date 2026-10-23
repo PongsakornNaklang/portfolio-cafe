@@ -51,3 +51,9 @@ The sign uses `fonts/ArchivoExpanded-ExtraBold.ttf`, the static Archivo instance
 ```
 
 This writes `web/storefront.glb` (text baked to meshes, character decimated, `hotspot` kept as glTF extras) and `web/rig.json` (camera shots and hotspot positions). The page in `web/` is static: serve the folder with any static server, e.g. `python3 -m http.server -d web`. Card text lives in `web/content.js`. Add `?time=day|sunset|night` to the URL to override the visitor's clock.
+
+## Character animation (Mixamo)
+
+1. `blender -b out/storefront_day.blend -P blender/export_mixamo.py -- mixamo/nakang_character.fbx` exports the character in an A-pose.
+2. Upload it to mixamo.com, auto-rig it (No Fingers), pick **Waving**, download FBX Binary, With Skin, 30 fps, and save it as `mixamo/waving.fbx`.
+3. When `mixamo/waving.fbx` exists, `build_storefront.py` swaps in that rigged character, and the clip is exported to the web as `wave`.
