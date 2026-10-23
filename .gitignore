@@ -1,0 +1,5 @@
+# renders and saved scenes are rebuilt by blender/build_storefront.py
+out/
+*.blend1
+__pycache__/
+.DS_Store
