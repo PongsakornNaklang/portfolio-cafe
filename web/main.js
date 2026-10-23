@@ -130,7 +130,9 @@ addEventListener("click", (e) => {
   const o = hotspotAt(e.clientX, e.clientY);
   if (!o) return;
   const key = o.userData.hotspot;
+  feedback(o);
   if (key === "music") return toggleMusic(e.clientX, e.clientY);
+  if (key === "about") wave();
   const c = cards[key];
   if (c) showBubble(c, e.clientX, e.clientY);
 });
@@ -190,6 +192,34 @@ function startTour(force = false) {
   next.focus();
 }
 document.getElementById("help").onclick = (e) => { e.stopPropagation(); startTour(true); };
+
+// ---------------------------------------------------------------- click feedback: a soft pop, a tiny buzz on phones, a squash-bounce
+let fx = null;
+const bouncing = new Map();
+function feedback(o) {
+  navigator.vibrate?.(12);
+  try {
+    fx ??= new AudioContext();
+    const t = fx.currentTime, osc = fx.createOscillator(), g = fx.createGain();
+    osc.frequency.setValueAtTime(720, t);
+    osc.frequency.exponentialRampToValueAtTime(320, t + 0.09);
+    g.gain.setValueAtTime(0.18, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    osc.connect(g).connect(fx.destination);
+    osc.start(t);
+    osc.stop(t + 0.13);
+  } catch {}
+  if (!bouncing.has(o)) bouncing.set(o, { rest: o.scale.clone(), t0: 0 });
+  bouncing.get(o).t0 = performance.now();
+}
+function animateBounces(now) {
+  for (const [o, b] of bouncing) {
+    const t = (now - b.t0) / 1000;
+    const k = t < 0.45 ? Math.sin(t * Math.PI * 4.4) * 0.07 * (1 - t / 0.45) : 0; // ponytail: damped sine, no tween lib
+    o.scale.set(b.rest.x * (1 - k * 0.5), b.rest.y * (1 + k), b.rest.z * (1 - k * 0.5));
+    if (t >= 0.45) bouncing.delete(o);
+  }
+}
 
 // ---------------------------------------------------------------- music: the record player toggles it
 let audio = null, synth = null;
@@ -266,8 +296,47 @@ addEventListener("resize", () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
+// ---------------------------------------------------------------- the character waves when you reach the window, and keeps eye contact
+// The arm is one skinned mesh: rotate its shoulder and elbow bones about the axis pointing at the viewer.
+const shoulder = scene.getObjectByName("char_wave_shoulder");
+const elbow = scene.getObjectByName("char_wave_elbow");
+const restQ = new Map([shoulder, elbow].map((b) => [b, b.quaternion.clone()]));
+const toViewer = new THREE.Vector3(0, 0, -1); // the character faces +Z; this sign swings the arm up and out
+const _q = new THREE.Quaternion(), _axis = new THREE.Vector3();
+function bendBone(bone, angle) {
+  bone.parent.updateMatrixWorld(true);
+  _axis.copy(toViewer).applyQuaternion(bone.parent.getWorldQuaternion(_q).invert());
+  bone.quaternion.setFromAxisAngle(_axis, angle).multiply(restQ.get(bone));
+}
+const head = scene.getObjectByName("char_head_pivot");
+const headRest = head.quaternion.clone();
+const headAim = new THREE.Quaternion();
+const D = THREE.MathUtils.degToRad;
+let waveStart = -1, waved = false;
+function wave() { waveStart = performance.now(); }
+function animateCharacter(now) {
+  if (progress > 0.85 && !waved) { waved = true; wave(); }
+  if (progress < 0.5) waved = false; // walk away and back to get another hello
+  const t = waveStart < 0 ? 99 : (now - waveStart) / 1000;
+  const up = t < 0.45 ? ease(t / 0.45) : t < 2.2 ? 1 : t < 2.7 ? 1 - ease((t - 2.2) / 0.5) : 0;
+  const flap = t > 0.45 && t < 2.2 ? Math.sin((t - 0.45) * Math.PI * 5) * D(28) : 0;
+  bendBone(shoulder, up * D(115));
+  bendBone(elbow, up * D(45) + flap * up);
+  // head: turn toward the viewer, limited to a natural neck range, eased
+  head.quaternion.copy(headRest);
+  const saved = head.quaternion.clone();
+  head.lookAt(camera.position);
+  headAim.copy(head.quaternion);
+  head.quaternion.copy(saved);
+  headAim.copy(saved.clone().rotateTowards(headAim, D(35)));
+  head.userData.q = (head.userData.q || saved.clone()).slerp(headAim, 0.08);
+  head.quaternion.copy(head.userData.q);
+}
+
 startTour(); // after everything above is defined (STEPS, handlers)
 renderer.setAnimationLoop(() => {
   placeCamera();
+  animateCharacter(performance.now());
+  animateBounces(performance.now());
   renderer.render(scene, camera);
 });

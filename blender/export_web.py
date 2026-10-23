@@ -30,6 +30,7 @@ for ob in bpy.data.objects:
     if ob.type == "MESH" and ob.name in ("char_jeans", "char_tee", "char_hair", "char_head_clay"):
         d = ob.modifiers.new("WebDecimate", "DECIMATE")
         d.ratio = 0.15
+        ob.modifiers.move(len(ob.modifiers) - 1, 0)  # before the armature, so the rigged tee keeps its skin weights
 
 
 def gl(v):

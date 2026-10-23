@@ -235,6 +235,53 @@ def skin_body(name, joints, bones, material, parent, levels=2):
     return obj
 
 
+def bake_modifiers(obj):
+    """Freeze the modifier stack into the mesh (needed before automatic skin weights)."""
+    me = bpy.data.meshes.new_from_object(obj.evaluated_get(bpy.context.evaluated_depsgraph_get()))
+    old = obj.data
+    obj.modifiers.clear()
+    obj.data = me
+    bpy.data.meshes.remove(old)
+    obj.vertex_groups.clear()
+
+
+def rig_character(body, shirt, root, wave_shoulder, wave_elbow):
+    """Give the body a real skeleton: the Skin modifier's own armature (one bone per skin edge), with the body and
+    the tee bound to it by automatic weights, so an arm bends as one continuous piece and the sleeve follows.
+    Renames the waving arm's bones to char_wave_shoulder / char_wave_elbow for the web page."""
+    with bpy.context.temp_override(active_object=body, object=body, selected_objects=[body], selected_editable_objects=[body]):
+        bpy.ops.object.skin_armature_create(modifier="Skin")
+    rig = next(m.object for m in body.modifiers if m.type == "ARMATURE")
+    rig.name = rig.data.name = "char_rig"
+    rig.parent = root  # the skin joints are in the character's local space, so the rig sits at the character's origin
+    rig.matrix_parent_inverse.identity()
+    rig.matrix_basis.identity()
+    bpy.context.view_layer.update()
+    body.modifiers.remove(next(m for m in body.modifiers if m.type == "ARMATURE"))
+    bake_modifiers(body)
+    bake_modifiers(shirt)
+    to_rig = rig.matrix_world.inverted() @ root.matrix_world
+
+    def nearest(p, below=True):
+        p = to_rig @ Vector(p)
+        bones = [b for b in rig.data.bones if not below or b.tail_local.z < b.head_local.z - 0.02]
+        return min(bones, key=lambda b: (b.head_local - p).length)
+    nearest(wave_shoulder).name = "char_wave_shoulder"
+    nearest(wave_elbow).name = "char_wave_elbow"
+    for ob in (body, shirt, rig):
+        ob.select_set(True)
+    bpy.context.view_layer.objects.active = rig
+    with bpy.context.temp_override(active_object=rig, object=rig, selected_objects=[body, shirt, rig],
+                                   selected_editable_objects=[body, shirt, rig]):
+        bpy.ops.object.parent_set(type="ARMATURE_AUTO")
+    for ob in (body, shirt, rig):
+        ob.select_set(False)
+    for ob in (body, shirt):  # same local space as the rig: drop the parent-inverse the operator computed
+        ob.matrix_parent_inverse.identity()
+        ob.matrix_basis.identity()
+    return rig
+
+
 def fuse(name, parts, material, parent, voxel=0.007, smooth=8):
     """Clay look: merge overlapping primitives (modifiers applied) into one mesh, then voxel-remesh + smooth
     so the joins melt into a single seamless body (blender-modeling: organic -> voxel remesh, no seams)."""
@@ -459,14 +506,19 @@ def build_storefront():
     cyl("menu_base", 0.22, 0.03, (0, 0, 0.015), mat("steel", rough=0.3, metal=0.8), parent=menu)
     cyl("menu_pole", 0.02, 1.5, (0, 0, 0.75), mat("steel", rough=0.3, metal=0.8), parent=menu)
     board = box("menu_board", (0.6, 0.03, 0.8), (0, -0.02, 1.55), mat("white"), parent=menu, bevel=0.01, rot=(-8, 0, 0))
-    for i in range(5):
-        box(f"menu_line_{i}", (0.42 - (i % 2) * 0.12, 0.01, 0.025), (-0.04, -0.02, 0.25 - i * 0.11), mat("ink"), parent=board, bevel=0.004)
+    ink = mat("ink", rough=0.6)
+    text("menu_title", "MENU", 0.11, (0, -0.02, 0.26), ink, parent=board, extrude=0.003, fonts=SIGN_FONTS, align="CENTER")
+    box("menu_rule", (0.46, 0.008, 0.008), (0, -0.02, 0.18), ink, parent=board, bevel=0)
+    for i, row in enumerate(("FRONTEND", "BACKEND", "TOOLS")):  # categories only: the card in web/content.js lists the real stack
+        text(f"menu_row_{i}", row, 0.05, (-0.21, -0.02, 0.08 - i * 0.1), ink, parent=board, extrude=0.002, fonts=SIGN_FONTS)
+        box(f"menu_dots_{i}", (0.1, 0.008, 0.006), (0.15, -0.02, 0.065 - i * 0.1), mat("menu_dots", color="#b9b0a2"), parent=board, bevel=0)
 
     # A-frame sign = short greeting
     af = empty("HOT_aframe", (-3.6, -0.85, 0.15), hotspot="hello")
-    for name, rx, y in [("aframe_front", -12, -0.09), ("aframe_back", 12, 0.09)]:
-        box(name, (0.6, 0.03, 0.9), (0, y, 0.44), mat("white"), parent=af, bevel=0.012, rot=(rx, 0, 0))
-    box("aframe_text", (0.4, 0.01, 0.05), (0, -0.2, 0.62), mat("ink"), parent=af, bevel=0.004, rot=(-12, 0, 0))
+    front = box("aframe_front", (0.6, 0.03, 0.9), (0, -0.09, 0.44), mat("white"), parent=af, bevel=0.012, rot=(-12, 0, 0))
+    box("aframe_back", (0.6, 0.03, 0.9), (0, 0.09, 0.44), mat("white"), parent=af, bevel=0.012, rot=(12, 0, 0))
+    text("aframe_hello", "HELLO!", 0.12, (0, -0.02, 0.16), mat("ink", rough=0.6), parent=front, extrude=0.003, fonts=SIGN_FONTS, align="CENTER")
+    text("aframe_sub", "come say hi", 0.055, (0, -0.02, 0.0), mat("ink", rough=0.6), parent=front, extrude=0.002, fonts=SIGN_FONTS, align="CENTER")
 
 
 # ---------------------------------------------------------------- interior (seen through glass only)
@@ -1017,9 +1069,9 @@ def build_interior():
     core = [(0, 0, 1.0, 0.1, 0.07), (0, 0, 1.18, 0.11, 0.07), (0, 0, 1.36, 0.12, 0.075),
             (0, 0, 1.5, 0.065, 0.065), (0, 0, 1.62, 0.06, 0.06)]  # pelvis, waist, chest, neck base, neck top (thin: clothes cover it)
 
-    def skeleton(core_n, arm_pts, leg_pts):
+    def skeleton(core_n, arm_pts, leg_pts, sides=(-1, 1)):
         joints, bones = list(core[:core_n]), [(i, i + 1) for i in range(core_n - 1)]
-        for sx in (-1, 1):
+        for sx in sides:
             if arm_pts:
                 base = len(joints)
                 joints += side(sx, arm_pts)
@@ -1028,13 +1080,14 @@ def build_interior():
                     bones[-1] = (base + 3, base + 6)  # thumb branches off the wrist
         return joints, bones
 
-    skin_body("char_body", *skeleton(5, arm, None), skin, me)  # legs are all jeans
+    body = skin_body("char_body", *skeleton(5, arm, None), skin, me)  # one piece: torso, neck, both arms (legs are all jeans)
     # tee: rounded-box torso with a flat hem + short sleeves grown from the shoulders, fused into one soft piece
     tee_parts = [box("char_tee_torso", (0.38, 0.23, 0.62), (0, 0, 1.2), tee, parent=me, bevel=0.1)]
     core = [(0, 0, 1.4, 0.12, 0.1)]
     sleeve = [(x, y, z, rx + 0.03, ry + 0.028) for x, y, z, rx, ry in arm[:2]]
     tee_parts.append(skin_body("char_tee_sleeves", *skeleton(1, sleeve, None), tee, me))
-    fuse("char_tee", tee_parts, tee, me, voxel=0.006, smooth=6)
+    shirt = fuse("char_tee", tee_parts, tee, me, voxel=0.006, smooth=6)
+    rig_character(body, shirt, me, wave_shoulder=(-arm[0][0], arm[0][1], arm[0][2]), wave_elbow=(-arm[2][0], arm[2][1], arm[2][2]))
     # jeans: rounded-box hips + two straight wide legs, fused
     jeans_parts = [box("char_jeans_hips", (0.34, 0.21, 0.22), (0, 0, 0.92), jeans, parent=me, bevel=0.08)]
     for i, sx in enumerate((-1, 1)):
@@ -1042,25 +1095,31 @@ def build_interior():
     fuse("char_jeans", jeans_parts, jeans, me, voxel=0.006, smooth=6)
     for i, x in enumerate((-0.1, 0.1)):
         ball(f"char_shoe_{i}", 0.07, (x, -0.035, 0.05), mat("white", rough=0.5), parent=me, scale=(1, 1.6, 0.75))
-    # head: egg skull + full cheeks + ears + small nose, fused into one clay piece
-    head = [ball("char_head", 0.155, (0, 0, 1.73), skin, parent=me, scale=(1.0, 0.95, 1.1)),
-            ball("char_cheeks", 0.15, (0, -0.01, 1.67), skin, parent=me, scale=(1.0, 0.92, 0.78)),
-            ball("char_nose", 0.02, (0, -0.145, 1.71), skin, parent=me, scale=(1, 0.8, 1))]
+    # head on a neck pivot (char_head_pivot) so the page can turn it toward the viewer
+    hp = empty("char_head_pivot", (0, 0, 1.58), parent=me)
+    H = lambda x, y, z: (x, y, z - 1.58)  # noqa: E731  head-space coordinates
+    head = [ball("char_head", 0.155, H(0, 0, 1.73), skin, parent=hp, scale=(1.0, 0.95, 1.1)),
+            ball("char_cheeks", 0.15, H(0, -0.01, 1.67), skin, parent=hp, scale=(1.0, 0.92, 0.78)),
+            ball("char_nose", 0.02, H(0, -0.145, 1.71), skin, parent=hp, scale=(1, 0.8, 1))]
     for i, s_ in enumerate((-1, 1)):
-        head.append(ball(f"char_ear_{i}", 0.032, (s_ * 0.152, 0.0, 1.72), skin, parent=me, scale=(0.5, 0.8, 1.1)))
-    fuse("char_head_clay", head, skin, me, voxel=0.005)
+        head.append(ball(f"char_ear_{i}", 0.032, H(s_ * 0.152, 0.0, 1.72), skin, parent=hp, scale=(0.5, 0.8, 1.1)))
+    fuse("char_head_clay", head, skin, hp, voxel=0.005)
     # your hair: dark messy mop with choppy heavy bangs down to the brows
-    mop = [ball("char_hair", 0.16, (0, 0.012, 1.81), hair, parent=me, scale=(1.04, 1.02, 0.78)),
-           ball("char_hair_back", 0.155, (0, 0.03, 1.73), hair, parent=me, scale=(1.05, 0.95, 0.85))]
+    mop = [ball("char_hair", 0.16, H(0, 0.012, 1.81), hair, parent=hp, scale=(1.04, 1.02, 0.78)),
+           ball("char_hair_back", 0.155, H(0, 0.03, 1.73), hair, parent=hp, scale=(1.05, 0.95, 0.85))]
     for k in range(11):  # strands tucked under the cap, uneven tips over the forehead
         a = radians(-70 + k * 14)
         L = (0.044, 0.036, 0.05, 0.04)[k % 4]
-        mop.append(ball(f"char_bang_{k}", 1.0, (0.146 * sin(a), -0.146 * cos(a), 1.775 + L), hair, parent=me,
+        mop.append(ball(f"char_bang_{k}", 1.0, H(0.146 * sin(a), -0.146 * cos(a), 1.775 + L), hair, parent=hp,
                         scale=(0.026, 0.014, L), rot=((-1) ** k * 7, 0, degrees(a))))
-    fuse("char_hair", mop, hair, me, voxel=0.005, smooth=4)
+    fuse("char_hair", mop, hair, hp, voxel=0.005, smooth=4)
     for i, s_ in enumerate((-1, 1)):
-        ball(f"char_eye_{i}", 0.017, (s_ * 0.052, -0.145, 1.74), mat("black", rough=0.3), parent=me, scale=(1, 0.5, 1.3))
-    ball("char_mouth", 1.0, (0, -0.145, 1.652), mat("mouth", color="#8c3a3a", rough=0.6), parent=me, scale=(0.02, 0.008, 0.012))
+        ball(f"char_eye_{i}", 0.017, H(s_ * 0.052, -0.145, 1.74), mat("black", rough=0.3), parent=hp, scale=(1, 0.5, 1.3))
+        ball(f"char_eye_glint_{i}", 0.005, H(s_ * 0.052 + 0.005, -0.153, 1.748), mat("white", rough=0.2), parent=hp)
+    # small open "D" mouth like the reference figures: flat top edge, round bottom, bright red
+    d = [(-0.022 + 0.044 * k / 8, 0.0) for k in range(9)][::-1] + [(0.022 * cos(radians(a_)), -0.017 * sin(radians(a_))) for a_ in range(160, 0, -20)]
+    mouth = prism("char_mouth", d, 0, 0.012, mat("mouth", color="#a3262a", rough=0.45), parent=hp, bevel=0.003)
+    mouth.location, mouth.rotation_euler = H(0, -0.137, 1.652), (radians(90), 0, 0)  # extrudes toward the viewer
 
     # cup shelf behind you, speakers and little friends on top
     cup_shelf("cup_shelf", (-1.6, 4.12, 1.95), 2.4, 1.3)
