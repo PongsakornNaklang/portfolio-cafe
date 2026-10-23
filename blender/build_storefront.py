@@ -378,7 +378,6 @@ def build_street():
         x = -20 + 0.25 + i * 0.5
         col = "curb_red" if i % 2 else "curb_white"
         box(f"kerb_{i}", (0.48, 0.18, 0.16), (x, -3.12, 0.08), mat(col), bevel=0.02)
-    cyl("utility_pole", 0.14, 8.0, (-6.2, -2.7, 4.0), mat("steel", rough=0.6), r2=0.11)
 
     # neighbours: plain pastel shophouses, one with a roll-up shutter
     box("neighbour_left", (6, 0.4, 9), (-7.5, 0.2, 4.65), mat("pink"), bevel=0.04)
@@ -387,28 +386,91 @@ def build_street():
     for i in range(18):
         box(f"shutter_rib_{i}", (3.2, 0.03, 0.03), (7.5 + EXTRA_W, -0.07, 0.25 + i * 0.145), mat("concrete_dark"), bevel=0.01)
 
-    for i, (x, y, col) in enumerate([(-4.75, -1.55, "stool_red"), (-4.2, -2.15, "stool_red"), (3.95 + EXTRA_W, -1.6, "stool_blue")]):
-        stool(f"stool_{i}", (x, y, 0.15), col)
-    cyl("cup_on_stool", 0.05, 0.12, (-4.75, -1.55, 0.68), mat("white"), r2=0.06)
-    plant("plant_out_right", (4.4 + EXTRA_W, -0.55, 0.15), 1.0)
-    plant("plant_out_left", (-4.85, -0.55, 0.15), 0.8)
+    # Thai street props: concrete pole with a knot of cables, a meatball cart, a red Thai Post mailbox
+    power_pole("power_pole", (-4.15, -2.75, 0.15))
+    thai_mailbox("mailbox", (-4.3, -0.95, 0.15))
+    meatball_cart("cart", (5.35 + EXTRA_W - 1.8, -1.75, 0.15))
 
 
-def stool(name, loc, color):
+def power_pole(name, loc):
+    """Bangkok concrete power pole: cross-arms, a transformer can, and the famous knot of sagging cables."""
     g = empty(name, loc)
-    cyl(f"{name}_body", 0.2, 0.42, (0, 0, 0.21), mat(color, rough=0.45), parent=g, r2=0.165, bevel=0.02)
-    cyl(f"{name}_seat", 0.175, 0.04, (0, 0, 0.44), mat(color, rough=0.45), parent=g, bevel=0.015)
-    cyl(f"{name}_hole", 0.03, 0.045, (0, 0, 0.445), mat("black"), parent=g, bevel=0.005)
+    rnd = random.Random(12)
+    concrete, black = mat("pole_concrete", color="#b9b6ae", rough=0.85), mat("cable", color="#1d1d1f", rough=0.6)
+    cyl(f"{name}_shaft", 0.15, 8.2, (0, 0, 4.1), concrete, parent=g, r2=0.1, bevel=0.02)
+    for i, z in enumerate((6.6, 6.1)):
+        box(f"{name}_arm_{i}", (1.3, 0.1, 0.1), (0, 0, z), concrete, parent=g, bevel=0.015)
+        for k, x in enumerate((-0.55, -0.2, 0.2, 0.55)):
+            cyl(f"{name}_insulator_{i}_{k}", 0.03, 0.09, (x, 0, z + 0.09), mat("white", rough=0.4), parent=g)
+    cyl(f"{name}_transformer", 0.2, 0.55, (0.28, 0.05, 5.3), mat("transformer", color="#8e9496", rough=0.5, metal=0.3), parent=g)
+    # cables: sag left (off-screen) and right across the facade, landing on the neighbour's wall
+    for i in range(7):
+        x0 = (-0.55, -0.2, 0.2, 0.55)[i % 4]
+        z0 = (6.6, 6.1)[i % 2] + 0.12
+        x1, z1 = (-9.0, z0 - rnd.uniform(0.0, 0.6)) if i < 3 else (13.5, z0 - rnd.uniform(0.6, 1.3))
+        y1 = rnd.uniform(1.0, 2.6) if i >= 3 else 0.0
+        sag = rnd.uniform(0.7, 1.2)
+        pts = []
+        for k in range(9):
+            t = k / 8
+            pts.append((x0 + (x1 - x0) * t, y1 * t, z0 + (z1 - z0) * t - sag * 4 * t * (1 - t), 0.012, 0.012))
+        skin_body(f"{name}_cable_{i}", pts, [(k, k + 1) for k in range(8)], black, g, levels=1)
+    # the knot: coils of spare cable bundled round the pole
+    for i in range(9):
+        ring(f"{name}_coil_{i}", rnd.uniform(0.2, 0.34), 0.014, (rnd.uniform(-0.06, 0.06), rnd.uniform(-0.04, 0.04), 4.6 + rnd.uniform(-0.18, 0.18)),
+             black, parent=g, rot=(rnd.uniform(60, 120), rnd.uniform(-35, 35), rnd.uniform(0, 180)))
+    box(f"{name}_meter", (0.22, 0.12, 0.3), (0, -0.16, 2.2), mat("meter", color="#d9d6cf", rough=0.5), parent=g, bevel=0.02)
     return g
 
 
-def plant(name, loc, scale):
+def thai_mailbox(name, loc):
+    """Red Thai Post mailbox: rounded-top box on a short post, posting slot, white band and notice plate."""
     g = empty(name, loc)
-    cyl(f"{name}_pot", 0.22 * scale, 0.35 * scale, (0, 0, 0.175 * scale), mat("pot", rough=0.8), parent=g, r2=0.17 * scale)
-    leaves = [(0, 0, 0.62, 0.26), (0.14, 0.05, 0.5, 0.2), (-0.15, -0.03, 0.52, 0.21), (0.03, -0.1, 0.8, 0.18), (-0.06, 0.1, 0.75, 0.17)]
-    for i, (x, y, z, r) in enumerate(leaves):
-        ball(f"{name}_leaf_{i}", r * scale, (x * scale, y * scale, z * scale),
-             mat("leaf_dark" if i % 2 else "leaf", rough=0.7), parent=g)
+    red, white = mat("post_red", color="#d42a2a", rough=0.4), mat("white", rough=0.4)
+    cyl(f"{name}_post", 0.06, 0.6, (0, 0, 0.3), mat("black", rough=0.5), parent=g)
+    box(f"{name}_body", (0.42, 0.36, 0.55), (0, 0, 0.88), red, parent=g, bevel=0.03)
+    cyl(f"{name}_dome", 0.21, 0.36, (0, 0, 1.155), red, parent=g, rot=(90, 0, 0))
+    box(f"{name}_slot", (0.2, 0.02, 0.025), (0, -0.185, 1.05), mat("black"), parent=g, bevel=0.005)
+    box(f"{name}_plate", (0.22, 0.012, 0.16), (0, -0.183, 0.82), white, parent=g, bevel=0.01)
+    box(f"{name}_band", (0.42, 0.012, 0.035), (0, -0.183, 1.15), white, parent=g, bevel=0.005)
+    return g
+
+
+def meatball_cart(name, loc):
+    """Street meatball cart: stainless body on bicycle wheels, glass display of skewers, a pot, red-white umbrella."""
+    g = empty(name, loc)
+    steel, glass = mat("steel", rough=0.3, metal=0.8), mat("glass", rough=0.05, alpha=0.25)
+    box(f"{name}_body", (1.1, 0.6, 0.55), (0, 0, 0.62), steel, parent=g, bevel=0.03)
+    box(f"{name}_panel", (1.0, 0.01, 0.3), (0, -0.305, 0.62), mat("stool_red", rough=0.45), parent=g, bevel=0.004)
+    box(f"{name}_case", (0.7, 0.45, 0.32), (-0.15, 0, 1.06), glass, parent=g, bevel=0.01)
+    box(f"{name}_case_frame", (0.72, 0.47, 0.02), (-0.15, 0, 1.22), steel, parent=g, bevel=0.005)
+    for k in range(6):  # skewers of meatballs on a tray inside the case
+        x = -0.4 + k * 0.1
+        cyl(f"{name}_stick_{k}", 0.005, 0.26, (x, 0.0, 0.93), mat("bamboo", color="#d8c08a", rough=0.6), parent=g, rot=(0, 90 - 70, 0))
+        for j in range(3):
+            ball(f"{name}_ball_{k}_{j}", 0.022, (x + 0.02 * (j - 1), -0.0, 0.93 + 0.05 * (j - 1)), mat("meatball", color="#a8714d", rough=0.7), parent=g)
+    cyl(f"{name}_pot", 0.13, 0.18, (0.33, 0, 0.99), steel, parent=g)
+    cyl(f"{name}_pot_lid", 0.135, 0.03, (0.33, 0, 1.095), steel, parent=g, r2=0.06)
+    for i, x in enumerate((-0.42, 0.42)):
+        ring(f"{name}_wheel_{i}", 0.26, 0.025, (x, -0.32, 0.27), mat("black", rough=0.5), parent=g, rot=(90, 0, 0))
+        cyl(f"{name}_hub_{i}", 0.04, 0.05, (x, -0.33, 0.27), steel, parent=g, rot=(90, 0, 0))
+    cyl(f"{name}_leg", 0.02, 0.36, (0.5, 0.25, 0.18), steel, parent=g)
+    # umbrella: pole + 8 alternating red/white panels forming a shallow cone
+    cyl(f"{name}_umbrella_pole", 0.018, 1.5, (0.4, 0.22, 1.55), steel, parent=g)
+    top, R, rim = Vector((0.4, 0.22, 2.36)), 0.85, 2.08
+    for k in range(8):
+        a0, a1 = radians(k * 45), radians((k + 1) * 45)
+
+        def build(bm, a0=a0, a1=a1):
+            vs = [bm.verts.new(top), bm.verts.new((top.x + R * cos(a0), top.y + R * sin(a0), rim)),
+                  bm.verts.new((top.x + R * cos(a1), top.y + R * sin(a1), rim))]
+            bm.faces.new(vs)
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+
+        panel = _finish(_mesh_obj(f"{name}_umbrella_{k}", build, (0, 0, 0), (0, 0, 0)),
+                        mat("stool_red" if k % 2 else "white", rough=0.6), 0, g)
+        panel.modifiers.new("Solidify", "SOLIDIFY").thickness = 0.015
+    ball(f"{name}_umbrella_tip", 0.035, tuple(top + Vector((0, 0, 0.02))), steel, parent=g)
     return g
 
 
