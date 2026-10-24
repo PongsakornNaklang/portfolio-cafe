@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { cards, site, drinks } from "./content.js?v=14";
-import { createSound, createStreetLife } from "./life.js?v=14";
+import { cards, site, drinks } from "./content.js?v=15";
+import { createSound, createStreetLife } from "./life.js?v=16";
 
 // ---------------------------------------------------------------- time of day (visitor's clock; ?time=night to test)
 const PRESETS = {
@@ -94,7 +94,8 @@ function animateClock() { // the visitor's real time; hands turn clockwise as se
 }
 
 const recordSpin = ["HOT_record_disc", "HOT_record_label"].map((n) => scene.getObjectByName(n));
-const musicOn = () => (audio ? !audio.paused : !!synth?.on);
+const musicOn = () => !!(audio && !audio.paused) || !!synth?.on;
+scene.getObjectByName("vinyl_shelf").userData.hotspot = "records";
 
 const door = scene.getObjectByName("HOT_door");
 let doorOpen = false, doorAmt = 0;
@@ -210,14 +211,15 @@ const ray = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 const tip = document.getElementById("tip");
 const LABEL = { about: "About me", skills: "Menu", hello: "Say hi", music: "Music on / off", guestbook: "Write on the board",
-  contact: "Contact", clock: "What time is it?", lamp: "Light on / off" };
+  contact: "Contact", clock: "What time is it?", lamp: "Light on / off", records: "Pick a record",
+  honk: "Beep beep!", bird: "Shoo!", book: "Flip through my projects" };
 
 function hotspotAt(x, y) {
   ndc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
   ray.setFromCamera(ndc, camera);
   // nearest solid surface wins: clicks pass through the shop glass (except the door's own glass),
   // but a wall or counter in front blocks whatever is behind it
-  for (const h of ray.intersectObject(gltf.scene, true)) {
+  for (const h of ray.intersectObject(scene, true)) { // scene, not gltf.scene: the passing cars and birds live there too
     let hot = null;
     for (let o = h.object; o && !hot; o = o.parent) if (o.userData.hotspot) hot = o;
     if (hot) return hot;
@@ -243,7 +245,7 @@ addEventListener("pointermove", (e) => {
 let bubble = null;
 addEventListener("click", (e) => {
   if (gaze.moved) return; // that was a drag to look around
-  if (bubble?.contains(e.target) || e.target.closest?.("#tour, #help, #board, #mute, #seatbar")) return;
+  if (bubble?.contains(e.target) || e.target.closest?.("#tour, #help, #board, #book, #mute, #seatbar")) return;
   bubble?.remove();
   bubble = null;
   const o = onScene(e) ? hotspotAt(e.clientX, e.clientY) : null;
@@ -251,13 +253,16 @@ addEventListener("click", (e) => {
   const key = o.userData.hotspot;
   if (key === "sip") return sip();
   if (key === "seat") return sitAt(o.userData.seat);
-  feedback(o, !["hello", "skills", "door", "clock", "lamp", "guestbook"].includes(key)); // flat or hanging things: sound + buzz only
+  if (key === "honk" || key === "bird") return life.poke(o);
+  feedback(o, !["hello", "skills", "door", "clock", "lamp", "guestbook", "records"].includes(key)); // flat or hanging things: sound + buzz only
   tip.style.opacity = 0;
   const r = screenRect(o);
   if (key === "music") return toggleMusic(r);
+  if (key === "records") return recordMenu(r);
   if (key === "door") return toggleDoor();
   if (key === "lamp") return toggleLamp(o);
   if (key === "guestbook") return openBoard();
+  if (key === "book") return openBook();
   if (key === "clock") {
     const d = new Date();
     return showBubble({ title: d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -282,16 +287,19 @@ function screenRect(o) {
 }
 
 // above the object if it fits, else beside it (the side with more room), else below; never over it
+const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
+// a card's words: title, text, table rows and link buttons (the bubbles and the project book share it)
+const cardHTML = (c) =>
+  `<h2>${esc(c.title)}</h2>` +
+  (c.body ? `<p>${esc(c.body)}</p>` : "") +
+  (c.rows ? `<table>${c.rows.map(([a, b]) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join("")}</table>` : "") +
+  [].concat(c.link || [], c.links || []).map((l) => `<a class="btn" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)} ↗</a>`).join(" ");
 function showBubble(c, r, ttl = 0) {
   bubble = document.createElement("div");
   bubble.className = "bubble";
   bubble.setAttribute("role", "dialog");
-  const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
   bubble.innerHTML =
-    `<button class="x" aria-label="Close">×</button><h2>${esc(c.title)}</h2>` +
-    (c.body ? `<p>${esc(c.body)}</p>` : "") +
-    (c.rows ? `<table>${c.rows.map(([a, b]) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join("")}</table>` : "") +
-    [].concat(c.link || [], c.links || []).map((l) => `<a class="btn" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)} ↗</a>`).join(" ") +
+    `<button class="x" aria-label="Close">×</button>` + cardHTML(c) +
     (c.actions ? `<div class="acts">${c.actions.map((a, i) => `<button class="btn" data-act="${i}">${esc(a.label)}</button>`).join("")}</div>` : "");
   document.body.append(bubble);
   bubble.querySelectorAll("[data-act]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); c.actions[+b.dataset.act].run(); }));
@@ -382,17 +390,57 @@ function openBoard() {
   dlg.showModal();
 }
 
+// ---------------------------------------------------------------- the project book on the centre table: one page at a time
+const bookPages = [
+  { kicker: site.name, title: "Projects", body: "Things I've made. Turn the page →" },
+  ...Object.keys(cards).filter((k) => k.startsWith("project:")).map((k) => ({ kicker: "Project", ...cards[k] })),
+  { kicker: "About", ...cards.about },
+  { kicker: "Say hi", ...cards.contact },
+];
+function openBook() {
+  const dlg = document.getElementById("book"), page = document.getElementById("book-page");
+  const prev = document.getElementById("book-prev"), next = document.getElementById("book-next");
+  let i = 0;
+  const show = (step) => {
+    i = THREE.MathUtils.clamp(i + step, 0, bookPages.length - 1);
+    page.innerHTML = `<div class="kicker">${esc(bookPages[i].kicker)}</div>` + cardHTML(bookPages[i]);
+    page.className = "page";
+    void page.offsetWidth; // restart the page-turn animation
+    if (step) page.classList.add(step > 0 ? "flip" : "flip-back");
+    document.getElementById("book-num").textContent = `${i + 1} / ${bookPages.length}`;
+    prev.disabled = i === 0;
+    next.disabled = i === bookPages.length - 1;
+    if (step) feedback(page, false);
+  };
+  prev.onclick = () => show(-1);
+  next.onclick = () => show(1);
+  dlg.onkeydown = (e) => { if (e.key === "ArrowRight") show(1); if (e.key === "ArrowLeft") show(-1); };
+  document.getElementById("book-close").onclick = () => dlg.close();
+  dlg.onclick = (e) => { if (e.target === dlg) dlg.close(); }; // tap outside the book to close it
+  show(0);
+  dlg.showModal();
+}
+
 // ---------------------------------------------------------------- music: the record player toggles it
-let audio = null, synth = null;
+let audio = null, synth = null, rec = site.records[0];
+function stopMusic() { audio?.pause(); if (synth?.on) synth.toggle(); }
+function startMusic() {
+  if (!rec.url) { synth ??= lofiSynth(); if (!synth.on) synth.toggle(); return; }
+  if (!audio?.src.endsWith(rec.url)) audio = Object.assign(new Audio(rec.url), { loop: true, volume: 0.5 });
+  audio.play();
+}
 function toggleMusic(r) {
-  if (site.musicUrl) {
-    audio ??= Object.assign(new Audio(site.musicUrl), { loop: true, volume: 0.5 });
-    audio.paused ? audio.play() : audio.pause();
-    return showBubble({ title: audio.paused ? "Music off" : "♪ Music on" }, r, 1400);
-  }
-  synth ??= lofiSynth();
-  synth.toggle();
-  showBubble({ title: synth.on ? "♪ Music on" : "Music off" }, r, 1400);
+  musicOn() ? stopMusic() : startMusic();
+  showBubble({ title: musicOn() ? `♪ ${rec.name}` : "Music off" }, r, 1400);
+}
+// the vinyl shelf: pick a record and it goes on the player
+function recordMenu(r) {
+  showBubble({ title: "Pick a record", body: musicOn() ? `Now playing: ${rec.name}` : "",
+    actions: site.records.map((x) => ({ label: `${x === rec && musicOn() ? "♪ " : ""}${x.name}`, run: () => {
+      stopMusic(); rec = x; startMusic();
+      bubble?.remove(); bubble = null;
+      showBubble({ title: `♪ ${x.name}`, body: `by ${x.by}` }, screenRect(recordObj), 1600);
+    } })) }, r);
 }
 
 // ponytail: a tiny built-in lofi loop (soft chords + dusty beat) until a real track is set in content.js
@@ -531,7 +579,7 @@ const pinTex = (() => {
   const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
 })();
 let pins = [];
-let myDrink = null, seated = false, picking = null;
+let myDrink = null, seated = false, picking = null, mySeat = null;
 function drinkMenu(r) {
   bubble?.remove();
   showBubble({ title: "Menu", body: "What can I get you?",
@@ -568,6 +616,7 @@ function clearPins() { for (const p of pins) p.parent?.remove(p); pins = []; }
 function sitAt(i) {
   const d = picking, s = SEATS[i];
   picking = null;
+  mySeat = i;
   clearPins();
   const level = myDrink?.userData.id === d.id ? myDrink.userData.level : 1; // moving seats: your drink comes with you
   myDrink?.parent?.remove(myDrink);
@@ -627,7 +676,18 @@ function sip() {
   if (!myDrink) return;
   myDrink.userData.level = Math.max(0, myDrink.userData.level - 0.25);
   fill(myDrink);
-  if (myDrink.userData.level === 0) showBubble({ title: "All gone!", body: "Thanks for stopping by." }, screenRect(myDrink), 1600);
+  sound.slurp(myDrink.userData.level === 0);
+  if (myDrink.userData.level === 0) showBubble({ title: "All gone!", body: "Another one?",
+    actions: drinks.map((d) => ({ label: `${d.emoji} ${d.name}`, run: () => refill(d) })) }, screenRect(myDrink));
+}
+// a fresh drink at the same seat, without turning your head
+function refill(d) {
+  bubble?.remove(); bubble = null;
+  const { yaw, pitch } = gaze;
+  myDrink.userData.level = 1;
+  picking = d;
+  sitAt(mySeat);
+  Object.assign(gaze, { yaw, pitch });
 }
 function standUp() {
   seated = false;

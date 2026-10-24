@@ -69,8 +69,31 @@
     #seatbar button { font: 600 14px "Anuphan", sans-serif; border: 0; border-radius: 999px; padding: 7px 14px; background: var(--sign); cursor: pointer; }
     /* keep clear of the sound and ? buttons in the corner */
     @media (max-width: 960px) { #seatbar .hint { display: none; } }
+    @media (max-width: 600px) { #hint { bottom: 72px; } }
     @media (max-width: 600px) { #seatbar { bottom: 72px; flex-wrap: wrap; justify-content: center; width: max-content; max-width: calc(100vw - 32px);
                                            border-radius: 22px; padding: 8px 10px; gap: 8px; } }
+    /* the project book: a yellow hardcover, one page at a time */
+    #book { border: 0; border-radius: 6px 18px 18px 6px; padding: 26px 26px 16px 34px; width: min(440px, calc(100vw - 32px)); background: var(--paper);
+            box-shadow: inset 12px 0 0 #f2c81d, inset 14px 0 0 #d9b10f, 0 20px 60px rgba(0,0,0,.35); overflow: hidden; }
+    #book::backdrop { background: rgba(20,18,16,.45); }
+    #book .page { min-height: 210px; transform-origin: 0 50%; }
+    #book .page.flip { animation: turn .35s ease-out; }
+    #book .page.flip-back { animation: turn-back .35s ease-out; transform-origin: 100% 50%; }
+    @keyframes turn { from { transform: perspective(900px) rotateY(-60deg); opacity: 0; } }
+    @keyframes turn-back { from { transform: perspective(900px) rotateY(60deg); opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { #book .page.flip, #book .page.flip-back { animation: none; } }
+    #book .kicker { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #7a7266; margin-bottom: 6px; }
+    #book h2 { margin: 0 0 8px; font: 800 26px/1.1 "Archivo", sans-serif; font-stretch: 125%; }
+    #book p { margin: 0 0 4px; }
+    #book table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+    #book td { padding: 5px 0; border-bottom: 1px dashed #d9d3c4; }
+    #book td + td { text-align: right; color: #7a7266; }
+    #book a.btn { display: inline-block; margin-top: 12px; padding: 7px 16px; border-radius: 999px; background: var(--sign); color: var(--ink); font-weight: 600; text-decoration: none; }
+    #book .tools { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; padding-top: 12px; border-top: 1px dashed #d9d3c4; }
+    #book .tools button { font: 600 14px "Anuphan", sans-serif; border: 0; border-radius: 999px; padding: 7px 16px; cursor: pointer; background: #ece7dc; color: var(--ink); }
+    #book .tools button:disabled { opacity: .35; cursor: default; }
+    #book #book-num { font-size: 13px; color: #7a7266; }
+    #book .x { position: absolute; top: 8px; right: 12px; border: 0; background: none; font-size: 22px; line-height: 1; cursor: pointer; color: #7a7266; }
     /* guestbook drawing window */
     #board { border: 0; border-radius: 20px; padding: 16px; background: var(--paper); width: min(760px, calc(100vw - 32px), calc((100dvh - 210px) * 1.5 + 44px)); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
     #board::backdrop { background: rgba(20,18,16,.45); }
@@ -110,6 +133,11 @@
       <div class="row"><button class="skip" id="tour-skip">Skip</button><span><button class="skip" id="tour-back" hidden>Back</button> <button class="next" id="tour-next">Next</button></span></div>
     </div>
   </div>
+  <dialog id="book" aria-label="Project book">
+    <button class="x" id="book-close" aria-label="Close">×</button>
+    <div class="page" id="book-page"></div>
+    <div class="tools"><button id="book-prev">← Back</button><span id="book-num"></span><button id="book-next">Next →</button></div>
+  </dialog>
   <dialog id="board" aria-labelledby="board-title">
     <h2 id="board-title">Leave a note</h2>
     <p>Draw or write anything with your mouse or finger, then stick it on the board.</p>
@@ -127,6 +155,6 @@
     </div>
   </dialog>
   <div id="loading">NAKANG</div>
-  <script type="module" src="main.js?v=15"></script>
+  <script type="module" src="main.js?v=18"></script>
 </body>
 </html>

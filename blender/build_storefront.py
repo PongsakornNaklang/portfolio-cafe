@@ -1054,6 +1054,19 @@ def turntable(name, loc, label="stool_red", **kw):
     return g
 
 
+def project_book(name, loc, rot=0):
+    """Closed yellow hardcover lying on a table: tap it to flip through the projects."""
+    g = empty(name, loc, hotspot="book", rot=(0, 0, rot))
+    cover = mat("book_cover", color="#f2c81d", rough=0.6)
+    for k, z in enumerate((0.003, 0.034)):
+        box(f"{name}_board_{k}", (0.23, 0.31, 0.006), (0.004, 0, z), cover, parent=g, bevel=0.002)
+    box(f"{name}_spine", (0.008, 0.31, 0.037), (-0.111, 0, 0.0185), cover, parent=g, bevel=0.002)
+    box(f"{name}_pages", (0.215, 0.296, 0.025), (0.002, 0, 0.0185), mat("white"), parent=g, bevel=0.001)
+    text(f"{name}_title", "PROJECTS", 0.028, (0.004, 0, 0.0375), mat("ink", rough=0.6), parent=g, extrude=0.0008,
+         fonts=SIGN_FONTS, rot=(0, 0, 90), align="CENTER")
+    return g
+
+
 def splay(x, y, deg=7):
     """Tilt a leg so its foot points away from the centre."""
     return ((1 if y > 0 else -1) * deg, -(1 if x > 0 else -1) * deg, 0)
@@ -1445,6 +1458,7 @@ def build_interior():
     for i, (x, y) in enumerate(((1.6, 2.0), (2.6, 2.0), (1.6, 3.3), (2.6, 3.3))):
         steel_stool(f"stool_steel_{i}", (x, y, 0.2))
     turntable("HOT_record", (1.55, 2.65, 0.94), label="sign", hotspot="music")  # click to play / stop the music
+    project_book("HOT_book", (2.2, 2.62, 0.94), rot=-12)  # the project book: tap to flip through
     bookshelf("bookshelf", (0.95, 4.1, 0.2), 0.9, 2.2, 0.35)
     vinyl_shelf("vinyl_shelf", (2.08, 4.125, 0.2))  # back wall next to the bookshelf: plywood cubbies of records
     chalkboard("HOT_board", (4.9, 1.75, 1.3), 1.5, 1.0, rot=(0, 0, -90))  # right wall, first thing you pass inside the door

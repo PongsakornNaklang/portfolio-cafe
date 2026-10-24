@@ -8,12 +8,17 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 - After ordering, pick any seat: the corner table, the stools at the middle table, the window bench, or the plastic chair outside.
 - While seated, drag (or swipe) to look around.
 - Change seat while seated; your drink comes with you.
+- Finish your drink and order another without leaving your seat.
+- A slurp when you sip, with a rattle on the last one.
+- Tap the vinyl shelf to pick a record: two lofi tracks (CC0, by omfgdude) or the shop's own tape.
+- A yellow project book on the centre table: tap it to flip through the projects, about and contact, page by page.
+- Tap a passing tuk-tuk or taxi: beep beep, then the dog barks or the cat meows. Tap a myna on the wire and the birds nearby fly off.
 - The character waves with a little "huh!" at the tour's "That's me" step and whenever he says hello.
 
 ### Fixed
 - Cars and tuk-tuks keep driving past while you're inside or seated, not only on the street.
 - A strip of sky showed through the floor under the shop window.
-- The seat bar no longer covers the sound and ? buttons on narrow screens.
+- The seat bar and the scroll hint no longer cover the sound and ? buttons on phones.
 - Cards, the tour box and buttons block what's behind them: no hover label or tap goes through to the scene.
 - A card opened during the tour no longer stays floating on screen after Next or Back.
 - The tour camera frames each thing whole, instead of cutting off the character's head or the menu, and goes inside so plants and the menu stand no longer block the view.

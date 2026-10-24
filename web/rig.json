@@ -66,6 +66,14 @@
     -1.75
    ]
   },
+  "HOT_book": {
+   "hotspot": "book",
+   "pos": [
+    2.2,
+    0.94,
+    -2.62
+   ]
+  },
   "HOT_character": {
    "hotspot": "about",
    "pos": [

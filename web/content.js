@@ -3,7 +3,12 @@
 
 export const site = {
   name: "Pongsakorn Naklang",
-  musicUrl: "", // drop a royalty-free lofi track in web/ and put its file name here; empty = built-in synth loop
+  // the records on the vinyl shelf (tap the shelf to pick one); url "" = the built-in synth loop
+  records: [
+    { name: "Lofi Loop", by: "omfgdude", url: "sfx/lofi1.mp3" },
+    { name: "Lofi Again", by: "omfgdude", url: "sfx/lofi2.mp3" },
+    { name: "Shop tape", by: "made in the browser", url: "" },
+  ],
 };
 
 // drinks you can order from the character (ids match TPL_drink_* in the 3D scene)

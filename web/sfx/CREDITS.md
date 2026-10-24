@@ -11,3 +11,6 @@ All sounds are CC0 (public domain) from OpenGameArt.org, trimmed and converted t
 | motorbike.mp3 (also the tuk-tuk, pitched up) | [Motor sound effect](https://opengameart.org/content/motor-sound-effect) |
 | street.mp3 | [High traffic road sounds](https://opengameart.org/content/high-traffic-road-sounds) |
 | huh.mp3 (the character's hello) | [huh](https://opengameart.org/content/huh) by TinyWorlds |
+| lofi1.mp3, lofi2.mp3 (records on the vinyl shelf) | [Lofi Hip Hop Loop](https://opengameart.org/content/lofi-hip-hop-loop) and [Lofi again](https://opengameart.org/content/lofi-again) by omfgdude |
+
+The car horn and the straw slurp are made in the browser (Web Audio), no files.
