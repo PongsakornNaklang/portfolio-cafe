@@ -34,6 +34,12 @@ for ob in bpy.data.objects:
         ob.modifiers.move(len(ob.modifiers) - 1, 0)  # before the armature, so the rigged tee keeps its skin weights
 
 
+# the Meshy character ships 2K-4K textures: 1024 is plenty at this size on screen
+for img in bpy.data.images:
+    if img.size[0] > 1024:
+        img.scale(1024, 1024)
+
+
 def gl(v):
     """Blender Z-up -> glTF Y-up."""
     return [round(v[0], 3), round(v[2], 3), round(-v[1], 3)]

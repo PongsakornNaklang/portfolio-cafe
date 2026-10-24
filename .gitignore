@@ -4,3 +4,7 @@ out/
 __pycache__/
 .DS_Store
 .claude/
+/Meshy_AI_*
+meshy/obj/
+meshy/*.zip
+meshy/nakang_mixamo.fbx

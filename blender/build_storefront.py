@@ -270,6 +270,85 @@ def smooth_weights(ob, repeat=6, factor=0.5):
                 ob.vertex_groups[k].remove([i])
 
 
+def retarget(src, tgt, name):
+    """Copy an animation between two Mixamo-named skeletons whose rest poses differ: each bone gets the source's
+    world-space rotation change from its own rest, applied on top of the target's rest. Returns the new action."""
+    from mathutils import Matrix
+    act = src.animation_data.action
+    f0, f1 = (int(x) for x in act.frame_range)
+    tgt.animation_data_create()
+    new = bpy.data.actions.new(name)
+    tgt.animation_data.action = new
+    names = [b.name for b in tgt.data.bones if src.pose.bones.get(b.name)]
+    srest = {n: (src.matrix_world @ src.data.bones[n].matrix_local).to_quaternion() for n in names}
+    trest = {n: (tgt.matrix_world @ tgt.data.bones[n].matrix_local).to_quaternion() for n in names}
+    scene = bpy.context.scene
+    for f in range(f0, f1 + 1, 2):
+        scene.frame_set(f)
+        for n in names:  # tgt.data.bones lists parents before children
+            pb = tgt.pose.bones[n]
+            tq = (src.matrix_world @ src.pose.bones[n].matrix).to_quaternion() @ srest[n].inverted() @ trest[n]
+            mw = tgt.matrix_world @ pb.matrix
+            pb.matrix = tgt.matrix_world.inverted() @ (Matrix.Translation(mw.to_translation()) @ tq.to_matrix().to_4x4()
+                                                        @ Matrix.Diagonal(mw.to_scale()).to_4x4())
+            bpy.context.view_layer.update()
+            pb.keyframe_insert("rotation_quaternion" if pb.rotation_mode == "QUATERNION" else "rotation_euler", frame=f)
+    tgt.animation_data.action = None
+    return new
+
+
+def use_meshy_character(me, path, wave_src):
+    """The character from Meshy (meshy/biped: modelled from the brief, auto-rigged with Mixamo bone names, with its own
+    idle clips). The wave comes from the Mixamo Waving clip (mixamo/waving.fbx), retargeted onto this skeleton.
+    The page plays the NLA tracks 'idle' and 'wave'."""
+    for o in list(me.children_recursive):
+        bpy.data.objects.remove(o)
+    before = set(bpy.data.objects)
+    acts_before = set(bpy.data.actions)
+    bpy.ops.import_scene.fbx(filepath=path)
+    new = [o for o in bpy.data.objects if o not in before]
+    for o in new:
+        for c in o.users_collection:
+            c.objects.unlink(o)
+        _coll["current"].objects.link(o)
+    arm = next(o for o in new if o.type == "ARMATURE")
+    arm.name = "char_mixamo"
+    for o in new:
+        if o.type == "MESH":
+            o.name = "char_mesh"
+    clips = {a.name.split("|")[-1]: a for a in bpy.data.actions if a not in acts_before}
+    if arm.animation_data:
+        arm.animation_data.action = None
+    # wave: retarget the Mixamo clip
+    tracks = {"idle": clips.get("Idle_3") or next(iter(clips.values()))}
+    if os.path.exists(wave_src):
+        b2 = set(bpy.data.objects)
+        a2 = set(bpy.data.actions)
+        bpy.ops.import_scene.fbx(filepath=wave_src)
+        extra = [o for o in bpy.data.objects if o not in b2]
+        src = next(o for o in extra if o.type == "ARMATURE")
+        tracks["wave"] = retarget(src, arm, "wave")
+        for o in extra:
+            bpy.data.objects.remove(o)
+        for a in set(bpy.data.actions) - a2 - {tracks["wave"]}:
+            bpy.data.actions.remove(a)
+    for a in clips.values():  # drop the clips the page doesn't use (walk, run, the other idle)
+        if a is not tracks["idle"]:
+            bpy.data.actions.remove(a)
+    for nm, action in tracks.items():
+        action.name = nm
+        action.use_fake_user = True
+        t = arm.animation_data.nla_tracks.new()
+        t.name = nm
+        t.strips.new(nm, int(action.frame_range[0]), action)
+    # stand him behind the counter at the old character's size (Meshy delivers ~1.7 m)
+    arm.parent = me
+    arm.matrix_parent_inverse.identity()
+    arm.location = (0, 0, 0.18)
+    me.scale = (1.4, 1.4, 1.4)
+    bpy.context.scene.frame_set(1)
+
+
 def use_mixamo_character(me, path):
     """Swap the hand-built character for the Mixamo-rigged one (mixamo/waving.fbx: our character uploaded via
     blender/export_mixamo.py, auto-rigged, with the Waving clip). The page plays the clip; frame 1 is the idle pose."""
@@ -1314,8 +1393,12 @@ def build_interior():
     mouth = prism("char_mouth", d, 0, 0.012, mat("mouth", color="#a3262a", rough=0.45), parent=hp, bevel=0.003)
     mouth.location, mouth.rotation_euler = H(0, -0.137, 1.652), (radians(90), 0, 0)  # extrudes toward the viewer
 
-    mixamo = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "mixamo", "waving.fbx")
-    if os.path.exists(mixamo):
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    meshy = os.path.join(root, "meshy", "biped", "nakang_biped.fbx")
+    mixamo = os.path.join(root, "mixamo", "waving.fbx")
+    if os.path.exists(meshy):
+        use_meshy_character(me, meshy, mixamo)
+    elif os.path.exists(mixamo):
         use_mixamo_character(me, mixamo)
 
     # cup shelf behind you, speakers and little friends on top
@@ -1399,6 +1482,578 @@ def ipod_classic(parent, pid):
 
 
 PROJECT_BUILDERS = {"ipod_classic": ipod_classic}
+
+
+# ---------------------------------------------------------------- templates the page clones: street life and drinks
+# Each TPL_* faces +X (its direction of travel), sits on z=0, and is parked far behind the building where the
+# camera never looks; the page removes them and spawns copies. Pivots the page animates:
+#   *_wheel_N (spin), *_leg_N (swing), *_wing_N (flap), TPL_drink_*_liquid (sip level), *_tail (wag).
+
+def _pivot_wheel(name, loc, r, width, g, tyre, hub):
+    p = empty(name, loc, parent=g)  # unrotated pivot: the page spins it about the axle
+    cyl(f"{name}_tyre", r, width, (0, 0, 0), tyre, parent=p, rot=(90, 0, 0))
+    cyl(f"{name}_hub", r * 0.45, width + 0.01, (0, 0, 0), hub, parent=p, rot=(90, 0, 0))
+    return p
+
+
+def profile(name, outline, width, material, parent, loc=(0, 0, 0), bevel=0.03):
+    """Side profile (x, z points) extruded across Y, centred: the shape of a car body, a tuk-tuk roof, a scooter."""
+    def build(bm):
+        face = bm.faces.new([bm.verts.new((x, -width / 2, z)) for x, z in outline])
+        ext = bmesh.ops.extrude_face_region(bm, geom=[face])
+        bmesh.ops.translate(bm, vec=(0, width, 0), verts=[v for v in ext["geom"] if isinstance(v, bmesh.types.BMVert)])
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        _box_uvs(bm)
+
+    return _finish(_mesh_obj(name, build, loc, (0, 0, 0)), material, bevel, parent)
+
+
+def paint_regions(obj, rules):
+    """Give faces another material by where they sit: rules = [(material, test(face_centre))], later rules win."""
+    for m, _ in rules:
+        obj.data.materials.append(m)
+    for p in obj.data.polygons:
+        c = p.center
+        for k, (_, test) in enumerate(rules):
+            if test(c):
+                p.material_index = k + 1
+
+
+def skin_creature(name, root, joints, edges, material, rules=(), bones=None, levels=2, parts=(), voxel=0.006, weights=()):
+    """One seamless clay body: a limb skeleton (Skin modifier) plus extra shapes (head, muzzle, ears) melted together by
+    voxel remesh, then rigged with the skeleton's own bones (automatic weights) so the page can swing legs, tails and
+    wings. joints: {key: (x, y, z, r)}, first key is the root. parts: callables(parent) -> object, built in root space.
+    bones: {bone_name: joint_key} names the bone that ENDS at that joint. weights: [(bone_name, test(co))] hands matching
+    vertices wholly to that bone, for thin parts automatic weighting misses (bird wings)."""
+    keys = list(joints)
+    pts = [(*joints[k][:3], joints[k][3], joints[k][3]) for k in keys]
+    body = skin_body(f"{name}_body", pts, [(keys.index(a), keys.index(b)) for a, b in edges], material, root, levels)
+    with bpy.context.temp_override(active_object=body, object=body, selected_objects=[body], selected_editable_objects=[body]):
+        bpy.ops.object.skin_armature_create(modifier="Skin")
+    rig = next(m.object for m in body.modifiers if m.type == "ARMATURE")
+    rig.name = rig.data.name = f"{name}_rig"
+    rig.parent = root
+    rig.matrix_parent_inverse.identity()
+    rig.matrix_basis.identity()
+    bpy.context.view_layer.update()
+    body.modifiers.remove(next(m for m in body.modifiers if m.type == "ARMATURE"))
+    if parts:  # melt extra shapes in (voxel remesh) only when asked; otherwise keep the clean skin quad mesh
+        body = fuse(f"{name}_body", [body] + [make(root) for make in parts], material, root, voxel=voxel, smooth=4)
+        d = body.modifiers.new("Decimate", "DECIMATE")
+        d.ratio = 0.35
+    bake_modifiers(body)
+    paint_regions(body, list(rules))
+    for bone_name, key in (bones or {}).items():
+        target = Vector(joints[key][:3])
+        min(rig.data.bones, key=lambda b: (b.tail_local - target).length).name = bone_name
+    with bpy.context.temp_override(active_object=rig, object=rig, selected_objects=[body, rig], selected_editable_objects=[body, rig]):
+        bpy.ops.object.parent_set(type="ARMATURE_AUTO")
+    for bone_name, test in weights:
+        grp = body.vertex_groups.get(bone_name) or body.vertex_groups.new(name=bone_name)
+        for v in body.data.vertices:
+            if test(v.co):
+                for gi in [g.group for g in v.groups]:
+                    body.vertex_groups[gi].remove([v.index])
+                grp.add([v.index], 1.0, "REPLACE")
+    smooth_weights(body, repeat=3)
+    body.parent = rig
+    body.matrix_parent_inverse.identity()
+    body.matrix_basis.identity()
+    return rig, body
+
+
+def _mirror(joints):
+    """Add the right-hand (+y) copy of every key ending in L."""
+    out = dict(joints)
+    for k, (x, y, z, r) in joints.items():
+        if k.endswith("L"):
+            out[k[:-1] + "R"] = (x, -y, z, r)
+    return out
+
+
+def _mirror_edges(edges):
+    return edges + [(a.replace("L", "R") if a.endswith("L") else a, b[:-1] + "R") for a, b in edges if b.endswith("L")]
+
+
+def surface_hit(obj, origin, direction):
+    """Where a ray from origin meets obj's surface (obj-local coords): (point, normal). For sticking eyes and mouths on."""
+    from mathutils.bvhtree import BVHTree
+    bvh = BVHTree.FromObject(obj, bpy.context.evaluated_depsgraph_get())
+    hit, normal, _, _ = bvh.ray_cast(Vector(origin), Vector(direction).normalized())
+    return (hit, normal) if hit else (Vector(origin), -Vector(direction).normalized())
+
+
+def toon_eyes(name, body, parent, centres, size, look=(1, 0, 0), brows=True, pupil="#1d1d1f"):
+    """Cartoon eyeballs pressed into the surface: white ball, dark pupil looking along `look`, a soft brow above."""
+    look = Vector(look).normalized()
+    for i, c in enumerate(centres):
+        hit, n = surface_hit(body, Vector(c) + look * 0.5, -look)
+        centre = hit - n * size * 0.35
+        ball(f"{name}_eye_{i}", size, tuple(centre), mat("eye_white", color="#f7f5f0", rough=0.25), parent=parent)
+        ball(f"{name}_pupil_{i}", size * 0.48, tuple(centre + n * size * 0.78), mat("pupil", color=pupil, rough=0.2), parent=parent,
+             scale=(1, 1, 1))
+        if brows:
+            b = centre + n * size * 0.55 + Vector((0, 0, size * 1.45))
+            ball(f"{name}_brow_{i}", size, tuple(b), mat("hair", rough=0.8), parent=parent, scale=(0.35, 0.95, 0.22))
+
+
+def _skin_part(name, J, E, material, parent, grow=0.0, levels=2):
+    """Bake a skin-modifier mesh from part of a joint dict (radii grown by `grow`, e.g. for clothes over the body)."""
+    keys = list(dict.fromkeys([k for e in E for k in e]))
+    obj = skin_body(name, [(*J[k][:3], J[k][3] + grow, J[k][3] + grow) for k in keys],
+                    [(keys.index(a), keys.index(b)) for a, b in E], material, parent, levels)
+    bake_modifiers(obj)
+    return obj
+
+
+def carve(head, centre, size, rot=(0, 0, 0), inside="#3b1414"):
+    """Cut a cavity into the head (exact boolean): the walls of the hole get the dark mouth-interior colour."""
+    cut = bpy.data.objects.new("_cutter", None)
+    me = bpy.data.meshes.new("_cutter")
+    bm = bmesh.new()
+    bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, radius=1.0)
+    bm.to_mesh(me)
+    bm.free()
+    cut = bpy.data.objects.new("_cutter", me)
+    cut.location, cut.scale, cut.rotation_euler = centre, size, [radians(r) for r in rot]
+    cut.data.materials.append(mat("mouth_in", color=inside, rough=0.6))
+    _coll["current"].objects.link(cut)
+    cut.parent = head
+    m = head.modifiers.new("Carve", "BOOLEAN")
+    m.operation, m.solver, m.object = "DIFFERENCE", "EXACT", cut
+    m.material_mode = "TRANSFER"
+    bake_modifiers(head)
+    for p in head.data.polygons:
+        p.use_smooth = True
+    bpy.data.objects.remove(cut)
+
+
+def grin(name, head, g, centre, width, height, offset=(0, 0, 0)):
+    """Wide open smile carved into the head: a real hole with a dark inside, upper teeth hanging from the top lip, a
+    smaller lower row, and a tongue at the back."""
+    yc, zc = centre
+    hit, n = surface_hit(head, (0.8, yc, zc), (-1, 0, 0))
+    carve(head, tuple(hit - Vector((0.012, 0, 0))), (0.035, width / 2, height / 2), rot=(0, -8, 0))
+    off = Vector(offset)
+    h = hit + off
+    teeth = mat("teeth", color="#f8f6f0", rough=0.3)
+    for k in range(6):  # upper row, just inside the lip
+        y = -width * 0.34 + k * width * 0.136
+        box(f"{name}_tu{k}", (0.016, width * 0.125, height * 0.3), (h.x - 0.016, h.y + y, h.z + height * 0.3), teeth, parent=g, bevel=0.004)
+    for k in range(5):  # lower row
+        y = -width * 0.24 + k * width * 0.12
+        box(f"{name}_tl{k}", (0.016, width * 0.11, height * 0.22), (h.x - 0.02, h.y + y, h.z - height * 0.34), teeth, parent=g, bevel=0.004)
+    ball(f"{name}_tongue", 0.03, (h.x - 0.03, h.y, h.z - height * 0.2), mat("tongue", color="#d0605a", rough=0.5), parent=g, scale=(0.7, 1.3, 0.45))
+
+
+HEADS = {
+    # the reference look: tall egg head tapering into the neck, long downward nose, wide grin, slicked-back hair
+    "ref": dict(size=(0.13, 0.15, 0.19), taper=0.42, cheeks=0.01, nose=(0.12, 0.2, 0.09), nose_down=0.6, hair="slick", eyes="round", mouth="grin"),
+    # you: round full face and cheeks, short soft nose, sleepy eyes, heavy mop fringe, calm closed mouth, light stubble
+    "you": dict(size=(0.14, 0.165, 0.175), taper=0.08, cheeks=0.03, nose=(0.052, 0.32, 0.16), nose_down=0.25, hair="mop", eyes="sleepy", mouth="calm"),
+}
+
+
+def sculpt_head(name, parent, centre, style, skin):
+    """Head sculpted from a high-res sphere by smooth (gaussian) push/pull fields, the way you'd block a toy head in sculpt
+    mode: ellipsoid, jaw taper, cheek bulges, eye sockets, a nose pulled out of the face. Faces +X. Returns the mesh object."""
+    H = HEADS[style]
+    rx, ry, rz = H["size"]
+    nose_len, nose_w, nose_h = H["nose"]
+
+    def field(d, c, sigma):
+        return __import__("math").exp(-(1 - d.dot(Vector(c).normalized())) / sigma)
+
+    def build(bm):
+        bmesh.ops.create_uvsphere(bm, u_segments=72, v_segments=48, radius=1.0)
+        for v in bm.verts:
+            d = v.co.normalized()
+            x, y, z = d.x * rx, d.y * ry, d.z * rz
+            if z < 0:  # jaw: narrower toward the chin
+                k = 1 - H["taper"] * (-d.z) ** 1.6
+                x, y = x * (1 - 0.35 * H["taper"] * (-d.z) ** 1.6), y * k
+            for sy in (-1, 1):  # full cheeks
+                w = field(d, (0.75, sy * 0.55, -0.35), 0.06)
+                x += H["cheeks"] * 1.2 * w
+                y += sy * H["cheeks"] * w
+                ws = field(d, (0.8, sy * 0.42, 0.18), 0.012)  # soft eye socket
+                x -= 0.008 * ws
+            # nose: pulled forward out of the face, drooping downward at the tip
+            wn = field(d, (1.0, 0, 0.0), 0.012 * nose_w / 0.22) * field(d, (0.95, 0, -0.15), nose_h)
+            x += nose_len * wn
+            z -= nose_len * H["nose_down"] * wn ** 2
+            v.co = Vector((x, y, z))
+        for f in bm.faces:
+            f.smooth = True
+
+    obj = _finish(_mesh_obj(name, build, centre, (0, 0, 0)), skin, 0, parent)
+    obj.modifiers.new("Subsurf", "SUBSURF").levels = 1
+    return obj
+
+
+def sculpt_hair(name, head, parent, style, colour, centre):
+    """Hair as its own closed sculpt that sits over the skull: everywhere below the hairline it is pulled inside the head,
+    so the visible edge is one smooth curve (no stepped cut). Strand clumps are grooves fanning out from the crown;
+    'mop' (your cut) is full and round with a heavy fringe ending in soft pointed clumps just above the eyes, 'slick'
+    is swept back from a high hairline."""
+    from math import atan2, pi
+    H = HEADS[style]
+    rx, ry, rz = H["size"]
+    mop = H["hair"] == "mop"
+
+    def build(bm):
+        bmesh.ops.create_uvsphere(bm, u_segments=96, v_segments=64, radius=1.0)
+        for v in bm.verts:
+            d = v.co.normalized()
+            base = Vector((d.x * rx, d.y * ry, d.z * rz))
+            if mop:
+                ph = (d.y / 0.9) * pi * 4.5  # 9 fringe clumps across the forehead
+                lobe = (0.5 + 0.5 * cos(ph)) ** 3
+                front = 0.36 - 0.2 * lobe  # clump tips reach lower than the gaps between them
+                line = front if d.x > 0.5 else (front - (0.5 - d.x) * 0.7)
+                line = max(line, -0.25) if d.x > -0.2 else -0.55  # over the ears, down to the nape
+            else:
+                line = 0.7 - 0.9 * max(0.0, -d.x) - 0.35 * abs(d.y) * max(0.0, d.x)
+            # strand clumps: grooves fanning from the crown (mop) or running front-to-back (slick)
+            theta = atan2(d.y, d.x) if mop else d.y * 6.0
+            groove = (0.5 + 0.5 * cos(theta * (14 if mop else 1) * (1 if mop else pi))) ** 2
+            puff = (0.022 + 0.026 * max(0.0, d.z) + 0.01 * abs(d.y)) if mop else (0.012 + 0.03 * max(0.0, d.z) * (0.6 + 0.4 * max(0.0, -d.x)))
+            puff += 0.006 * groove * max(0.0, d.z + 0.3)
+            if d.z < line:  # tuck under the scalp, fading in over a short band so the edge is soft and thick
+                t = min(1.0, (line - d.z) / 0.06)
+                v.co = base * (1 - 0.12 * t) + d * puff * (1 - t)
+            else:
+                v.co = base + d * puff
+        for f in bm.faces:
+            f.smooth = True
+
+    obj = _finish(_mesh_obj(name, build, centre, (0, 0, 0)), mat(name, color=colour, rough=0.55), 0, parent)
+    obj.modifiers.new("Subsurf", "SUBSURF").levels = 1
+    return obj
+
+
+def face_details(name, head, g, style, centre):
+    """Eyes, brows, nose tint, mouth, cheeks and ears stuck onto the sculpted head (all found by ray-casting the surface)."""
+    H = HEADS[style]
+    c = Vector(centre)
+    rx, ry, rz = H["size"]
+    skin = head.data.materials[0]
+    hit_at = lambda y, z: surface_hit(head, (0.6, y, z), (-1, 0, 0))  # noqa: E731  (head-local)
+    to_g = lambda p: c + p  # noqa: E731
+    # eyes
+    ey, ez = ry * 0.4, rz * 0.2
+    for i, s_ in enumerate((-1, 1)):
+        hit, n = hit_at(s_ * ey, ez)
+        r = 0.034 if H["eyes"] == "round" else 0.03
+        e = to_g(hit - n * r * 0.45)
+        ball(f"{name}_eye_{i}", r, tuple(e), mat("eye_white", color="#f7f5f0", rough=0.25), parent=g)
+        look = (n + Vector((0.6, 0, 0.02 if H["eyes"] == "sleepy" else -0.05))).normalized()
+        iris = ball(f"{name}_pupil_{i}", r * 0.52, tuple(e + look * r * 0.9), mat("pupil", color="#2a1d16", rough=0.15), parent=g,
+                    scale=(0.32, 1, 1))  # a flat disc sitting on the eyeball, not a bead sticking out
+        iris.rotation_euler = Vector((1, 0, 0)).rotation_difference(look).to_euler()
+        if H["eyes"] == "sleepy":  # heavy upper lid in skin colour: half-shut, relaxed
+            lid = ball(f"{name}_lid_{i}", r * 1.12, tuple(e + Vector((0, 0, r * 0.18))), skin, parent=g, scale=(1, 1.05, 0.62))
+            lid.rotation_euler = (0, radians(-12), 0)
+        brow_pts = [to_g(hit_at(s_ * (ey + dy), ez + 0.052 + dz)[0]) + Vector((0.004, 0, 0)) for dy, dz in ((-0.022, -0.004), (0.002, 0.004), (0.026, -0.002))]
+        if H["hair"] == "slick":  # the mop fringe hides the brows
+            br = skin_body(f"{name}_brow_{i}", [(*p, r_, r_ * 0.7) for p, r_ in zip(brow_pts, (0.009, 0.012, 0.008))], [(0, 1), (1, 2)],
+                           mat(f"{name}_brow", color="#3a2a20", rough=0.7), g)
+            bake_modifiers(br)
+        # ears
+        ball(f"{name}_ear_{i}", 0.04, tuple(c + Vector((-0.01, s_ * ry * 0.98, -0.005))), skin, parent=g, scale=(0.55, 0.45, 1.0))
+        # cheeks: soft blush
+        h, nn = hit_at(s_ * ry * 0.62, -rz * 0.2)
+        ball(f"{name}_blush_{i}", 0.026, tuple(to_g(h - nn * 0.014)), mat("blush", color="#ec8d7a", rough=0.6), parent=g, scale=(0.45, 1, 0.7))
+    if H["mouth"] == "grin":
+        grin(f"{name}_grin", head, g, centre=(0, -rz * 0.48), width=0.12, height=0.05, offset=c)
+    else:  # calm, lips just parted: a narrow slit carved into the face, a fuller lower lip, faint moustache stubble
+        h, nn = hit_at(0, -rz * 0.5)
+        carve(head, tuple(h - Vector((0.006, 0, 0))), (0.016, 0.034, 0.0075), inside="#4a1d1a")
+        h, nn = hit_at(0, -rz * 0.6)
+        ball(f"{name}_lowerlip", 0.032, tuple(to_g(h - nn * 0.022)), mat("lip", color="#d48c7c", rough=0.45), parent=g, scale=(0.4, 1.25, 0.4))
+        h, nn = hit_at(0, -rz * 0.38)
+        ball(f"{name}_stubble", 0.045, tuple(to_g(h - nn * 0.04)), mat("stubble", color="#b59a82", rough=0.9), parent=g, scale=(0.3, 1.25, 0.28))
+
+
+def person(name, loc, parent, top, bottom="#2c4a7a", shoes="#6b3a24", pose="stand", hair="#3a2a20", helmet=None,
+           hand=(0.6, 0.17), foot=(0.32, -0.4), rot=0, face="ref"):
+    """Toy person in the reference style. Body: one smooth skin-modifier quad mesh (head with grown-in bulb nose and ears,
+    three-finger-and-thumb hands); clothes are their own shells over it (tee with sleeves, jeans with cuffs), like a real
+    character model; plus cartoon eyeballs, open smile, chunky shoes, hair or helmet. Built facing +X, pelvis at loc.
+    pose: 'stand', or 'ride' (seated with hands and feet at the given targets, relative to the pelvis)."""
+    g = empty(name, loc, parent=parent, rot=(0, 0, rot))
+    stand = pose == "stand"
+    J = {"pelvis": (0, 0, 0, 0.125), "waist": (0, 0, 0.18, 0.13), "chest": (0, 0, 0.36, 0.15), "neckb": (0, 0, 0.5, 0.075),
+         "neck": (0.008, 0, 0.66, 0.072), "neckt": (0.012, 0, 0.76, 0.085)}
+    side = {"shL": (0.0, -0.165, 0.45, 0.062), "hipL": (0.01, -0.09, -0.07, 0.085)}
+    if stand:
+        side.update({"elL": (0.0, -0.215, 0.15, 0.05), "wrL": (0.02, -0.235, -0.13, 0.042), "paL": (0.03, -0.245, -0.2, 0.052),
+                     "knL": (0.015, -0.095, -0.46, 0.068), "anL": (0.0, -0.095, -0.85, 0.058)})
+        fingers = [((0.075, 0.01, -0.13), (0.085, 0.012, -0.19)), ((0.03, 0.0, -0.15), (0.035, 0.0, -0.21)),
+                   ((-0.015, -0.01, -0.13), (-0.02, -0.012, -0.19))]
+        thumb = (0.085, 0.035, -0.03)
+    else:
+        hx, hz = hand
+        side.update({"elL": (0.26, -0.215, 0.27, 0.05), "wrL": (hx - 0.08, -0.22, hz, 0.042), "paL": (hx, -0.22, hz, 0.052),
+                     "knL": (0.39, -0.13, 0.0, 0.07), "anL": (foot[0], -0.14, foot[1], 0.058)})
+        fingers = [((0.07, d, -0.03), (0.12, d, -0.07)) for d in (0.04, 0.0, -0.04)]
+        thumb = (0.05, 0.065, 0.03)
+    pa = side["paL"]
+    for k, (f0, f1) in enumerate(fingers):
+        side[f"f{k}aL"] = (pa[0] + f0[0], pa[1] - f0[1], pa[2] + f0[2], 0.022)
+        side[f"f{k}bL"] = (pa[0] + f1[0], pa[1] - f1[1], pa[2] + f1[2], 0.02)
+    side["thL"] = (pa[0] + thumb[0], pa[1] - thumb[1], pa[2] + thumb[2], 0.021)
+    J.update(_mirror(side))
+    E = [("pelvis", "waist"), ("waist", "chest"), ("chest", "neckb"), ("neckb", "neck"), ("neck", "neckt")]
+    E += _mirror_edges([("chest", "shL"), ("shL", "elL"), ("elL", "wrL"), ("wrL", "paL"),
+                        ("paL", "f0aL"), ("f0aL", "f0bL"), ("paL", "f1aL"), ("f1aL", "f1bL"), ("paL", "f2aL"), ("f2aL", "f2bL"),
+                        ("wrL", "thL"), ("pelvis", "hipL"), ("hipL", "knL"), ("knL", "anL")])
+    body = _skin_part(f"{name}_body", J, E, mat("skin", rough=0.55), g)
+    # clothes: separate shells a little bigger than the body
+    # tee hangs over the jeans: its hem node sits below the jeans' waistband
+    T = {"hem": (0, 0, -0.09, 0.2), "pelvis": (0, 0, 0, 0.2), "waist": (0, 0, 0.18, 0.17), "chest": (0, 0, 0.36, 0.178),
+         "neckb": (0, 0, 0.5, 0.09)}
+    for L in ("L", "R"):
+        sh, el = Vector(J["sh" + L][:3]), Vector(J["el" + L][:3])
+        T["sh" + L] = (*sh, 0.085)
+        T["slv" + L] = (*(sh + (el - sh) * 0.45), 0.075)
+    _skin_part(f"{name}_tee", T, [("hem", "pelvis"), ("pelvis", "waist"), ("waist", "chest"), ("chest", "neckb")]
+               + _mirror_edges([("chest", "shL"), ("shL", "slvL")]), mat(f"{name}_tee", color=top, rough=0.75), g)
+    P = {"band": (0, 0, 0.1, 0.145), "pelvis": (0, 0, 0, 0.15)}
+    for L in ("L", "R"):
+        kn, an = Vector(J["kn" + L][:3]), Vector(J["an" + L][:3])
+        P["hip" + L] = (*J["hip" + L][:3], 0.105)
+        P["kn" + L] = (*kn, 0.085)
+        P["cf" + L] = (*an, 0.08)
+    _skin_part(f"{name}_jeans", P, [("band", "pelvis")] + _mirror_edges([("pelvis", "hipL"), ("hipL", "knL"), ("knL", "cfL")]),
+               mat(f"{name}_jeans", color=bottom, rough=0.8), g)
+    ring(f"{name}_collar", 0.078, 0.015, (0.0, 0, 0.515), mat(f"{name}_tee", color=top, rough=0.75), parent=g)
+    # head: sculpted, not grown from the skeleton, so it can carry a real face
+    hc = (0.01, 0, 0.8 if face == "ref" else 0.765)  # the round face sits lower: shorter neck
+    head = sculpt_head(f"{name}_head", g, hc, face, mat("skin", rough=0.55))
+    face_details(name, head, g, face, hc)
+    if helmet:
+        ball(f"{name}_helmet", 0.18, (-0.01, 0, 0.88), mat(f"{name}_helmet", color=helmet, rough=0.3), parent=g, scale=(1.0, 0.98, 0.85))
+        box(f"{name}_visor", (0.08, 0.26, 0.04), (0.16, 0, 0.93), mat("black", rough=0.3), parent=g, bevel=0.016)
+    elif hair:
+        sculpt_hair(f"{name}_hair", head, g, face, hair, hc)
+    for L in ("L", "R"):  # chunky shoes
+        a = Vector(J["an" + L][:3])
+        box(f"{name}_shoe{L}", (0.25, 0.135, 0.13), tuple(a + Vector((0.06, 0, -0.045))), mat(f"{name}_shoes", color=shoes, rough=0.6),
+            parent=g, bevel=0.05, rot=(0, 0 if stand else -15, 0))
+    return g
+
+
+def tpl_tuktuk(name, loc):
+    """Bangkok tuk-tuk: green body, yellow canopy with a curved front visor, red bench, one headlight, a driver."""
+    g = empty(name, loc)
+    green, yellow = mat("tuk_body", color="#2f9e5b", rough=0.4), mat("tuk_roof", color="#ffd23f", rough=0.45)
+    red, black, chrome = mat("tuk_seat", color="#c8322b", rough=0.55), mat("black", rough=0.5), mat("steel", rough=0.25, metal=0.9)
+    tyre, hub = mat("tyre", color="#1d1d1f", rough=0.8), mat("steel", rough=0.3, metal=0.8)
+    profile(f"{name}_cowl", [(0.62, 0.5), (1.28, 0.5), (1.34, 0.66), (1.24, 0.9), (1.02, 1.04), (0.78, 1.02), (0.62, 0.88)], 0.56, green, g, bevel=0.06)
+    box(f"{name}_under", (0.6, 0.56, 0.3), (0.42, 0, 0.6), green, parent=g, bevel=0.05)
+    profile(f"{name}_tub", [(0.65, 0.42), (0.65, 0.66), (-0.52, 0.66), (-0.72, 0.98), (-1.22, 0.98), (-1.3, 0.72), (-1.26, 0.42)], 1.16, green, g, bevel=0.06)
+    box(f"{name}_stripe", (1.9, 1.18, 0.05), (-0.3, 0, 0.6), yellow, parent=g, bevel=0.02)
+    profile(f"{name}_roof", [(-1.34, 1.84), (-1.34, 1.98), (0.95, 1.98), (1.14, 1.84), (1.1, 1.7), (0.92, 1.84)], 1.32, yellow, g, bevel=0.04)
+    box(f"{name}_roof_trim", (2.25, 1.34, 0.05), (-0.2, 0, 1.82), green, parent=g, bevel=0.02)
+    for i, (x, y) in enumerate(((0.86, -0.56), (0.86, 0.56), (-1.24, -0.56), (-1.24, 0.56))):
+        cyl(f"{name}_post_{i}", 0.022, 0.95, (x, y, 1.36), chrome, parent=g)
+    box(f"{name}_screen", (0.025, 0.62, 0.5), (0.93, 0, 1.3), mat("glass", rough=0.05, alpha=0.3), parent=g, bevel=0, rot=(0, -12, 0))
+    box(f"{name}_bench", (0.42, 1.0, 0.14), (-0.95, 0, 1.06), red, parent=g, bevel=0.04)
+    box(f"{name}_backrest", (0.12, 1.0, 0.46), (-1.18, 0, 1.3), red, parent=g, bevel=0.04)
+    box(f"{name}_driver_seat", (0.34, 0.46, 0.1), (0.3, 0, 0.8), black, parent=g, bevel=0.03)
+    cyl(f"{name}_bar", 0.02, 0.56, (0.86, 0, 1.06), black, parent=g, rot=(90, 0, 0))
+    ball(f"{name}_lamp", 0.075, (1.33, 0, 0.78), mat("headlight", color="#fff6cc", emit=2.0), parent=g, scale=(0.6, 1, 1))
+    cyl(f"{name}_bumper", 0.018, 0.6, (1.38, 0, 0.52), chrome, parent=g, rot=(90, 0, 0))
+    person(f"{name}_driver", (0.28, 0, 0.88), g, top="#3c6fd8", pose="ride", hand=(0.56, 0.18), foot=(0.42, -0.36))
+    for i, (x, y) in enumerate(((1.02, 0), (-0.86, -0.6), (-0.86, 0.6))):
+        _pivot_wheel(f"{name}_wheel_{i}", (x, y, 0.24), 0.24, 0.16, g, tyre, hub)
+    return g
+
+
+def _arch(cx, r=0.42, cz=0.34):
+    """Wheel-arch points for a side profile, front of the arch first (cx is the axle)."""
+    return [(cx + r * cos(radians(a)), cz + r * sin(radians(a))) for a in range(-12, 193, 17)]
+
+
+def tpl_car(name, loc):
+    """Bangkok taxi: a toy sedan with real proportions, bonnet, boot, sloped glass and wheel arches.
+    Paint is carpaint (body) + carpaint_top (cabin) so the page can make two-tone taxis."""
+    g = empty(name, loc)
+    paint, top = mat("carpaint", color="#ff6fa5", rough=0.3), mat("carpaint_top", color="#ff6fa5", rough=0.3)
+    tyre, hub = mat("tyre", color="#1d1d1f", rough=0.8), mat("steel", rough=0.3, metal=0.8)
+    win, dark = mat("car_window", color="#2b3440", rough=0.15, metal=0.3), mat("car_trim", color="#3a3d42", rough=0.6)
+    front, rear = _arch(1.2), _arch(-1.2)
+    outline = ([(1.9, 0.25), (1.97, 0.58), (1.86, 0.78), (1.1, 0.88), (-1.2, 0.9), (-1.86, 0.86), (-1.97, 0.6), (-1.9, 0.25)]
+               + rear[::-1] + front[::-1])
+    profile(f"{name}_body", outline, 1.6, paint, g, bevel=0.06)
+    profile(f"{name}_cabin", [(1.0, 0.86), (0.36, 1.36), (-0.64, 1.36), (-1.14, 0.88)], 1.36, top, g, bevel=0.08)
+    profile(f"{name}_glass", [(0.94, 0.95), (0.38, 1.33), (-0.64, 1.33), (-1.08, 0.95)], 1.4, win, g, bevel=0.02)
+    box(f"{name}_pillar", (0.09, 1.42, 0.36), (-0.12, 0, 1.13), top, parent=g, bevel=0.02)
+    for i, x in enumerate((1.96, -1.96)):
+        box(f"{name}_bumper_{i}", (0.14, 1.62, 0.18), (x, 0, 0.36), dark, parent=g, bevel=0.06)
+    box(f"{name}_grille", (0.04, 0.7, 0.12), (1.97, 0, 0.62), dark, parent=g, bevel=0.02)
+    for i, y in enumerate((-0.56, 0.56)):
+        ball(f"{name}_light_{i}", 0.1, (1.93, y, 0.66), mat("headlight", color="#fff6cc", emit=2.0), parent=g, scale=(0.4, 1.2, 0.6))
+        ball(f"{name}_tail_{i}", 0.09, (-1.95, y, 0.68), mat("taillight", color="#e8483b", emit=1.0), parent=g, scale=(0.4, 1.2, 0.6))
+        box(f"{name}_mirror_{i}", (0.1, 0.12, 0.08), (0.85, y * 1.42, 0.98), top, parent=g, bevel=0.03)
+    box(f"{name}_sign", (0.5, 0.22, 0.15), (-0.14, 0, 1.45), mat("taxi_sign", color="#f4f2ec", rough=0.5), parent=g, bevel=0.04)
+    for i, rz in enumerate((0, 180)):
+        text(f"{name}_sign_text_{i}", "TAXI", 0.09, (-0.14, -0.113 if i == 0 else 0.113, 1.45), mat("ink", rough=0.6), parent=g,
+             extrude=0.002, fonts=SIGN_FONTS, rot=(90, 0, rz), align="CENTER")
+    for i, (x, y) in enumerate(((1.2, -0.72), (1.2, 0.72), (-1.2, -0.72), (-1.2, 0.72))):
+        _pivot_wheel(f"{name}_wheel_{i}", (x, y, 0.33), 0.33, 0.22, g, tyre, hub)
+    return g
+
+
+def tpl_motorbike(name, loc):
+    """Honda-Wave-style step-through with a motorbike-taxi rider (orange vest, white helmet)."""
+    g = empty(name, loc)
+    red, white, black = mat("bike_body", color="#d6342c", rough=0.4), mat("white", rough=0.4), mat("black", rough=0.5)
+    chrome, tyre, hub = mat("steel", rough=0.25, metal=0.9), mat("tyre", color="#1d1d1f", rough=0.8), mat("steel", rough=0.3, metal=0.8)
+    profile(f"{name}_frame", [(0.5, 0.45), (0.36, 0.6), (0.0, 0.55), (-0.3, 0.66), (-0.62, 0.74), (-0.8, 0.66), (-0.72, 0.45),
+                              (-0.25, 0.38), (0.25, 0.36)], 0.26, red, g, bevel=0.05)
+    profile(f"{name}_shield", [(0.38, 0.48), (0.6, 0.6), (0.66, 0.96), (0.56, 1.02), (0.44, 0.86)], 0.42, white, g, bevel=0.05)
+    profile(f"{name}_seat", [(-0.66, 0.73), (-0.62, 0.83), (0.0, 0.81), (0.06, 0.7), (-0.3, 0.66)], 0.28, black, g, bevel=0.04)
+    profile(f"{name}_fender", [(0.48, 0.5), (0.58, 0.6), (0.82, 0.6), (0.94, 0.48), (0.9, 0.44), (0.8, 0.54), (0.6, 0.54), (0.52, 0.44)], 0.12, red, g, bevel=0.02)
+    cyl(f"{name}_fork", 0.025, 0.8, (0.62, 0, 0.66), chrome, parent=g, rot=(0, -14, 0))
+    cyl(f"{name}_bar", 0.02, 0.62, (0.5, 0, 1.06), black, parent=g, rot=(90, 0, 0))
+    ball(f"{name}_lamp", 0.07, (0.62, 0, 1.0), mat("headlight", color="#fff6cc", emit=2.0), parent=g, scale=(0.6, 1, 1))
+    cyl(f"{name}_exhaust", 0.03, 0.5, (-0.45, 0.14, 0.32), chrome, parent=g, rot=(0, 95, 0))
+    person(f"{name}_rider", (-0.18, 0, 0.84), g, top="#ff8a1f", pose="ride", helmet="#f4f2ec", hand=(0.62, 0.2), foot=(0.33, -0.38))
+    for i, x in enumerate((0.72, -0.6)):
+        _pivot_wheel(f"{name}_wheel_{i}", (x, 0, 0.28), 0.28, 0.09, g, tyre, hub)
+    return g
+
+
+def _animal_eyes(name, body, g, centres, size, looks, iris="#1d1d1f"):
+    for i, (c, lk) in enumerate(zip(centres, looks)):
+        lk = Vector(lk).normalized()
+        hit, n = surface_hit(body, Vector(c) + lk * 0.4, -lk)
+        centre = hit - n * size * 0.3
+        ball(f"{name}_eye_{i}", size, tuple(centre), mat("eye_white", color="#f7f5f0", rough=0.25), parent=g)
+        ball(f"{name}_pupil_{i}", size * 0.55, tuple(centre + n * size * 0.72), mat(f"iris_{iris}", color=iris, rough=0.2), parent=g)
+
+
+def tpl_dog(name, loc):
+    """Thai soi dog in the clean toy style: one smooth body (skull, muzzle, upright ears, curled tail all grown from one
+    skeleton), cream muzzle and socks, cartoon eyes, red collar. Bones {name}_leg_0..3 swing at the hip, {name}_tail wags."""
+    g = empty(name, loc)
+    J = _mirror({
+        "hip": (-0.2, 0, 0.42, 0.1), "mid": (0, 0, 0.43, 0.105), "chest": (0.17, 0, 0.45, 0.115),
+        "neck": (0.27, 0, 0.56, 0.078), "skullb": (0.33, 0, 0.67, 0.105), "skullf": (0.41, 0, 0.67, 0.095),
+        "muzzle": (0.49, 0, 0.635, 0.062), "nose": (0.56, 0, 0.625, 0.045),
+        "ear0L": (0.33, -0.07, 0.76, 0.045), "ear1L": (0.32, -0.085, 0.88, 0.012),
+        "fsL": (0.17, -0.07, 0.36, 0.05), "fkL": (0.19, -0.075, 0.19, 0.04), "fpL": (0.22, -0.075, 0.035, 0.046),
+        "rsL": (-0.2, -0.07, 0.36, 0.062), "rkL": (-0.25, -0.075, 0.2, 0.044), "rpL": (-0.21, -0.075, 0.035, 0.046),
+        "t0": (-0.3, 0, 0.48, 0.036), "t1": (-0.4, 0, 0.6, 0.029), "t2": (-0.36, 0, 0.72, 0.018),
+    })
+    E = _mirror_edges([("hip", "mid"), ("mid", "chest"), ("chest", "neck"), ("neck", "skullb"), ("skullb", "skullf"),
+                       ("skullf", "muzzle"), ("muzzle", "nose"), ("skullb", "ear0L"), ("ear0L", "ear1L"),
+                       ("chest", "fsL"), ("fsL", "fkL"), ("fkL", "fpL"), ("hip", "rsL"), ("rsL", "rkL"), ("rkL", "rpL"),
+                       ("hip", "t0"), ("t0", "t1"), ("t1", "t2")])
+    cream = mat("dog_cream", color="#f1e3c8", rough=0.75)
+    _, body = skin_creature(name, g, J, E, mat("dog_coat", color="#c98f55", rough=0.75), rules=[(cream, lambda c: c.x > 0.47 or c.z < 0.07)],
+                            bones={f"{name}_leg_0": "fkL", f"{name}_leg_1": "fkR", f"{name}_leg_2": "rkL", f"{name}_leg_3": "rkR", f"{name}_tail": "t1"})
+    _animal_eyes(name, body, g, [(0.43, s_ * 0.045, 0.71) for s_ in (-1, 1)], 0.024, [(0.75, s_ * 0.62, 0.15) for s_ in (-1, 1)])
+    hit, n = surface_hit(body, (1.0, 0, 0.635), (-1, 0, 0))
+    ball(f"{name}_nosetip", 0.026, tuple(hit), mat("black", rough=0.3), parent=g, scale=(0.8, 1.2, 0.9))
+    ring(f"{name}_collar", 0.075, 0.012, (0.27, 0, 0.555), mat("stool_red", rough=0.5), parent=g, rot=(0, 42, 0))
+    return g
+
+
+def tpl_cat(name, loc):
+    """Orange tabby street cat in the same style: slim, tail up, triangle ears, white muzzle and socks, green eyes."""
+    g = empty(name, loc)
+    J = _mirror({
+        "hip": (-0.16, 0, 0.27, 0.066), "mid": (0, 0, 0.28, 0.068), "chest": (0.14, 0, 0.29, 0.072),
+        "neck": (0.21, 0, 0.36, 0.052), "skullb": (0.25, 0, 0.445, 0.08), "skullf": (0.295, 0, 0.44, 0.072),
+        "muzzle": (0.335, 0, 0.415, 0.042),
+        "ear0L": (0.25, -0.05, 0.505, 0.034), "ear1L": (0.25, -0.062, 0.575, 0.007),
+        "fsL": (0.14, -0.045, 0.23, 0.031), "fkL": (0.15, -0.045, 0.12, 0.026), "fpL": (0.16, -0.045, 0.02, 0.029),
+        "rsL": (-0.16, -0.045, 0.23, 0.038), "rkL": (-0.2, -0.045, 0.12, 0.03), "rpL": (-0.17, -0.045, 0.02, 0.029),
+        "t0": (-0.22, 0, 0.31, 0.025), "t1": (-0.3, 0, 0.42, 0.022), "t2": (-0.31, 0, 0.55, 0.02), "t3": (-0.27, 0, 0.62, 0.015),
+    })
+    E = _mirror_edges([("hip", "mid"), ("mid", "chest"), ("chest", "neck"), ("neck", "skullb"), ("skullb", "skullf"),
+                       ("skullf", "muzzle"), ("skullb", "ear0L"), ("ear0L", "ear1L"),
+                       ("chest", "fsL"), ("fsL", "fkL"), ("fkL", "fpL"), ("hip", "rsL"), ("rsL", "rkL"), ("rkL", "rpL"),
+                       ("hip", "t0"), ("t0", "t1"), ("t1", "t2"), ("t2", "t3")])
+    white = mat("cat_white", color="#f6f1e8", rough=0.75)
+    _, body = skin_creature(name, g, J, E, mat("cat_coat", color="#e8a04a", rough=0.75), rules=[(white, lambda c: c.x > 0.325 or c.z < 0.05)],
+                            bones={f"{name}_leg_0": "fkL", f"{name}_leg_1": "fkR", f"{name}_leg_2": "rkL", f"{name}_leg_3": "rkR", f"{name}_tail": "t1"})
+    _animal_eyes(name, body, g, [(0.31, s_ * 0.035, 0.455) for s_ in (-1, 1)], 0.019, [(0.8, s_ * 0.55, 0.1) for s_ in (-1, 1)], iris="#4d7a2a")
+    hit, n = surface_hit(body, (1.0, 0, 0.425), (-1, 0, 0))
+    ball(f"{name}_nose", 0.011, tuple(hit), mat("cat_nose", color="#e98a9a", rough=0.5), parent=g)
+    return g
+
+
+def tpl_bird(name, loc):
+    """Common myna: one smooth piece (belly, head and folded wings melted onto a small skeleton), black head, yellow beak
+    and eye skin, white wing flash, cartoon eyes. Bones {name}_wing_0/1 open and flap about the shoulder."""
+    g = empty(name, loc)
+    J = _mirror({
+        "body": (0, 0, 0.14, 0.04), "tail": (-0.09, 0, 0.15, 0.024), "tailend": (-0.18, 0, 0.16, 0.012),
+        "chest": (0.05, 0, 0.16, 0.04), "neck": (0.08, 0, 0.2, 0.028), "head": (0.1, 0, 0.225, 0.022),
+        "shL": (0.03, -0.05, 0.17, 0.012), "midL": (-0.04, -0.06, 0.165, 0.012), "tipL": (-0.12, -0.06, 0.155, 0.008),
+    })
+    E = _mirror_edges([("body", "tail"), ("tail", "tailend"), ("body", "chest"), ("chest", "neck"), ("neck", "head"),
+                       ("chest", "shL"), ("shL", "midL"), ("midL", "tipL")])
+    brown = mat("myna", color="#5a4334", rough=0.7)
+    head, hr = Vector((0.1, 0, 0.225)), 0.045
+    parts = [lambda p: ball(f"{name}_belly", 0.07, (0.0, 0, 0.14), brown, parent=p, scale=(1.3, 0.85, 0.95)),
+             lambda p: ball(f"{name}_skull", hr, tuple(head), brown, parent=p)]
+    for s_ in (-1, 1):  # folded wings lying along the flanks
+        parts.append(lambda p, s_=s_: ball(f"{name}_wingm{s_}", 0.055, (-0.03, s_ * 0.056, 0.162), brown, parent=p,
+                                           scale=(1.55, 0.3, 0.62), rot=(0, -8, 0)))
+    _, body = skin_creature(name, g, J, E, brown, voxel=0.003, parts=parts,
+                            rules=[(mat("black", rough=0.5), lambda c: c.x > 0.06 and c.z > 0.19),
+                                   (mat("white", rough=0.5), lambda c: abs(c.y) > 0.064 and -0.075 < c.x < -0.035 and c.z > 0.15)],
+                            bones={f"{name}_wing_0": "midL", f"{name}_wing_1": "midR"},
+                            weights=[(f"{name}_wing_0", lambda co: co.y < -0.063 and co.z > 0.125),
+                                     (f"{name}_wing_1", lambda co: co.y > 0.063 and co.z > 0.125)])
+    yellow = mat("beak", color="#f2c230", rough=0.5)
+    cyl(f"{name}_beak", 0.014, 0.055, (0.165, 0, 0.222), yellow, parent=g, r2=0.003, rot=(0, 90, 0))
+    for i, s_ in enumerate((-1, 1)):
+        h, nn = surface_hit(body, (0.5, s_ * 0.6, 0.235), (-0.4, -s_ * 0.6, 0))
+        ball(f"{name}_patch_{i}", 0.012, tuple(h), yellow, parent=g, scale=(1.3, 0.6, 1))
+        cyl(f"{name}_leg_{i}", 0.005, 0.085, (0.01, s_ * 0.022, 0.042), yellow, parent=g)
+    _animal_eyes(name, body, g, [(0.12, s_ * 0.03, 0.235) for s_ in (-1, 1)], 0.0095, [(0.5, s_ * 0.85, 0.15) for s_ in (-1, 1)])
+    return g
+
+
+def tpl_drink(name, loc, liquid, foam=None, cup="glass"):
+    """Drink for the table; TPL_drink_*_liquid is a pivot at the bottom the page scales down as you sip."""
+    g = empty(name, loc)
+    if cup == "glass":
+        cyl(f"{name}_glass", 0.045, 0.14, (0, 0, 0.07), mat("glassware", color="#cfe9ee", rough=0.05, metal=0.3, alpha=0.18), parent=g)
+        h, r = 0.12, 0.04
+    else:
+        cyl(f"{name}_cup", 0.042, 0.07, (0, 0, 0.035), mat("white", rough=0.25), parent=g, r2=0.05)
+        ring(f"{name}_handle", 0.022, 0.006, (0.055, 0, 0.04), mat("white", rough=0.25), parent=g, rot=(90, 0, 0))
+        cyl(f"{name}_saucer", 0.075, 0.01, (0, 0, 0.005), mat("white", rough=0.25), parent=g)
+        h, r = 0.055, 0.04
+    lq = empty(f"{name}_liquid", (0, 0, 0.008), parent=g)
+    cyl(f"{name}_liquidm", r, h, (0, 0, h / 2), mat(f"{name}_drink", color=liquid, rough=0.3), parent=lq)
+    if foam:
+        cyl(f"{name}_foam", r, h * 0.2, (0, 0, h * 0.9), mat(f"{name}_foamm", color=foam, rough=0.6), parent=lq)
+    if cup == "glass":
+        cyl(f"{name}_straw", 0.006, 0.2, (0.015, 0, 0.13), mat("stool_red", rough=0.4), parent=g, rot=(0, 10, 0))
+    return g
+
+
+def build_templates():
+    use_collection("Templates")
+    parked = lambda i: (0, 60 + i * 4, 0)  # noqa: E731  far behind the building
+    tpl_tuktuk("TPL_tuktuk", parked(0))
+    tpl_car("TPL_car", parked(1))
+    tpl_motorbike("TPL_motorbike", parked(2))
+    tpl_dog("TPL_dog", parked(3))
+    tpl_cat("TPL_cat", parked(4))
+    tpl_bird("TPL_bird", parked(5))
+    tpl_drink("TPL_drink_latte", parked(6), "#a8774f", foam="#f4efe6")
+    tpl_drink("TPL_drink_matcha", parked(7), "#7fa83a", foam="#f4efe6")
+    tpl_drink("TPL_drink_thaitea", parked(8), "#e07b2c", foam="#f6efe1")
+    tpl_drink("TPL_drink_espresso", parked(9), "#3b2418", foam="#c08a5a", cup="cup")
 
 
 def build_projects():
@@ -1549,6 +2204,7 @@ def main():
     build_storefront()
     interior_light = build_interior()
     build_projects()
+    build_templates()
     build_rig(args.time, interior_light)
     bpy.context.scene.camera = bpy.data.objects["CAM_" + args.cam]
     setup_render()
