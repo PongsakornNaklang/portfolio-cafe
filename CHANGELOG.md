@@ -4,6 +4,8 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-25
+
 ### Added
 - After ordering, pick any seat: the corner table, the stools at the middle table, the window bench, or the plastic chair outside.
 - Drag to look around, on the street and while seated: a glance of up to 30° either way on the street (the shop stays in view), all the way round inside the shop or seated (the plastic chair outside too). The cursor is an open hand where you can drag and closes while you drag. On a phone a sideways swipe turns your head and an up/down swipe still walks; your view eases back to straight ahead as you walk.
@@ -121,7 +123,8 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 ### Added
 - Blender build script for the 3D toy storefront: street, NAKANG lightbox sign, shop front, interior seen through the glass, character, and clickable hotspots.
 
-[Unreleased]: https://github.com/PongsakornNaklang/portfolio-cafe/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/PongsakornNaklang/portfolio-cafe/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/PongsakornNaklang/portfolio-cafe/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/PongsakornNaklang/portfolio-cafe/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/PongsakornNaklang/portfolio-cafe/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/PongsakornNaklang/portfolio-cafe/compare/v0.2.0...v0.3.0
