@@ -9,10 +9,14 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 - Order a drink from the character, then sit at the corner table and tap it to sip.
 - A guided tour that flies the camera to each thing you can tap (the **?** button replays it).
 - Music notes float up from the record player while it plays.
+- Traffic in both lanes: a dog drives a blue tuk-tuk and a cat drives a pink taxi (Meshy models), each with its own engine sound.
 - Mynas fly in and perch on the power lines; a quiet street sound bed and a mute button.
 
 ### Changed
 - Cards close when you scroll.
+
+### Fixed
+- See-through patches on the character's face and shirt, where the hair behind showed through.
 
 ## [1.0.0] - 2026-10-24
 

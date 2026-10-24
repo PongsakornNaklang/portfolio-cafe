@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { cards, site, drinks } from "./content.js?v=9";
-import { createSound, createStreetLife } from "./life.js?v=9";
+import { cards, site, drinks } from "./content.js?v=10";
+import { createSound, createStreetLife } from "./life.js?v=10";
 
 // ---------------------------------------------------------------- time of day (visitor's clock; ?time=night to test)
 const PRESETS = {
@@ -561,7 +561,7 @@ function animateNotes(dt) {
 // ---------------------------------------------------------------- street life + sound (sound starts on the first tap or key)
 const sound = createSound();
 // traffic stays parked until the Meshy tuk-tuk and taxi (with their dog and cat drivers) replace the placeholders
-const life = createStreetLife({ scene, camera, sound, traffic: new URLSearchParams(location.search).has("traffic") });
+const life = createStreetLife({ scene, camera, sound });
 const startSound = () => { sound.start(); removeEventListener("pointerdown", startSound); removeEventListener("keydown", startSound); };
 addEventListener("pointerdown", startSound);
 addEventListener("keydown", startSound);

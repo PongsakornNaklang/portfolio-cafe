@@ -29,6 +29,7 @@ The time of day follows the visitor's clock (add `?time=day`, `sunset` or `night
 blender/build_storefront.py   builds the whole scene in Blender from code (headless)
 blender/export_web.py         exports web/storefront.glb (Draco) + web/rig.json
 blender/export_mixamo.py      exports the character in an A-pose for Mixamo
+blender/prep_meshy.py         shrinks the raw Meshy street models into meshy/street/*.glb
 mixamo/                       the Mixamo-rigged character with Waving and Breathing Idle clips
 web/                          the static three.js page (no build step)
 ```
@@ -69,5 +70,7 @@ Every release is listed in [CHANGELOG.md](CHANGELOG.md). To cut one:
 ## Credits
 
 - Sign font: Archivo by Omnibus-Type, SIL Open Font License (`blender/fonts/OFL-Archivo.txt`).
+- Character, tuk-tuk, taxi and myna models: generated with Meshy.
 - Character animation: Mixamo (Waving, Breathing Idle).
+- Sound effects: CC0 from OpenGameArt (see `web/sfx/CREDITS.md`).
 - 3D library: [three.js](https://threejs.org).
