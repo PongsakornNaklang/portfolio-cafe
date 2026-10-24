@@ -22,19 +22,21 @@ export const drinks = [
 export const cards = {
   about: {
     title: "Pongsakorn Naklang",
-    body: "Software developer. (Write a two-line intro here: what you build and what you care about.)",
+    body: "Full-stack developer. I build web things with Next.js, Node.js and Tailwind, and share what I learn along the way. Open to full-time roles.",
   },
   skills: {
     title: "Menu",
     // one row per item, like a coffee menu: [name, note]
     rows: [
-      ["Your main language", "since 20XX"],
-      ["Your framework", "daily"],
-      ["Your tools", "favourite"],
+      ["Next.js", "front end"],
+      ["Node.js", "back end"],
+      ["TypeScript", "language"],
+      ["Tailwind CSS", "styling"],
+      ["Framer Motion", "animation"],
     ],
   },
   hello: {
-    title: "สวัสดี!",
+    title: "สวัสดีครับ!",
     body: "Welcome to NAKANG. Click anything that looks interesting.",
   },
   "project:iport": {
@@ -44,7 +46,7 @@ export const cards = {
   },
   contact: {
     title: "Contact",
-    body: "Say hello or ask about a project.",
+    body: "Open to full-time opportunities. Say hello or ask about a project.",
     links: [
       { label: "GitHub", url: "https://github.com/PongsakornNaklang" },
       { label: "Email", url: "mailto:pongsakornnaklang@gmail.com" },
