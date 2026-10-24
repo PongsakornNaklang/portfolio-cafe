@@ -18,7 +18,7 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 - The character waves with a little "huh!" at the tour's "That's me" step and whenever he says hello.
 
 ### Changed
-- The cards now say who you are, from the old portfolio (my-portfolio-2025): a full-stack intro, the menu lists Next.js, Node.js, TypeScript, Tailwind CSS and Framer Motion, the A-frame says สวัสดีครับ!, and Contact mentions you're open to full-time roles.
+- The cards now say who you are, starting from the old portfolio (my-portfolio-2025) and rewritten: a full-stack intro that mentions building this shop with Meshy and Claude Code; a menu of Next.js + React, Node.js, TypeScript, Tailwind CSS, Three.js + Blender, and the AI tools Claude Code and Meshy; สวัสดีครับ! on the A-frame; and Contact says you're looking for a full-time role.
 - The tuk-tuk and taxi are much closer to the Meshy originals: about 50k faces and 2048 px paint each (was 20-25k and 1024 px), so the panels are smooth and the paint sharp. The page download grows by about 4 MB.
 
 ### Fixed

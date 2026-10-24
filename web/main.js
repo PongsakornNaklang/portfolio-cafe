@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { cards, site, drinks } from "./content.js?v=16";
+import { cards, site, drinks } from "./content.js?v=17";
 import { createSound, createStreetLife } from "./life.js?v=18";
 
 // ---------------------------------------------------------------- time of day (visitor's clock; ?time=night to test)
