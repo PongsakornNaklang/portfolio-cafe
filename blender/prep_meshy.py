@@ -52,9 +52,21 @@ for name, (pat, faces, scale, turn, tex) in MODELS.items():
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
     bm.to_mesh(ob.data)
     bm.free()
+    full = ob.copy()
+    full.data = ob.data.copy()
+    bpy.context.collection.objects.link(full)
     d = ob.modifiers.new("dec", "DECIMATE")
     d.ratio = min(1, faces / len(ob.data.polygons))
     bpy.ops.object.modifier_apply(modifier=d.name)
+    # so few faces leave the surface dented: borrow the smooth shading of the full mesh. Its normal map only fits the
+    # full mesh, so it goes too.
+    t = ob.modifiers.new("nrm", "DATA_TRANSFER")
+    t.object, t.use_loop_data, t.data_types_loops, t.loop_mapping = full, True, {"CUSTOM_NORMAL"}, "POLYINTERP_NEAREST"
+    bpy.ops.object.modifier_apply(modifier=t.name)
+    bpy.data.objects.remove(full)
+    for m in ob.data.materials:
+        for l in [l for l in m.node_tree.links if l.to_socket.name == "Normal"]:
+            m.node_tree.links.remove(l)
     for img in bpy.data.images:
         if img.size[0] > tex:
             img.scale(tex, tex)

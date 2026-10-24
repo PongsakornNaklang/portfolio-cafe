@@ -17,6 +17,7 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 
 ### Fixed
 - See-through patches on the character's face and shirt, where the hair behind showed through.
+- Smooth surfaces on the character (no more hard light patches on the face and shirt) and on the tuk-tuk, taxi and myna (no more dents).
 
 ## [1.0.0] - 2026-10-24
 

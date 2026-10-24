@@ -324,6 +324,16 @@ def use_meshy_character(me, path, wave_src):
                     nt.links.remove(l)
                 s.material.surface_render_method = "DITHERED"
                 s.material.blend_method = "OPAQUE"
+            # Meshy also splits the mesh at every texture seam, so the shading breaks into hard patches on the face
+            # and shirt: weld it into one surface and let it shade smooth
+            bm = bmesh.new()
+            bm.from_mesh(o.data)
+            bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+            bm.to_mesh(o.data)
+            bm.free()
+            with bpy.context.temp_override(object=o, active_object=o, selected_editable_objects=[o]):
+                bpy.ops.mesh.customdata_custom_splitnormals_clear()
+            o.data.shade_smooth()
     clips ={a.name.split("|")[-1]: a for a in bpy.data.actions if a not in acts_before}
     if arm.animation_data:
         arm.animation_data.action = None
