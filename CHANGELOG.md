@@ -4,6 +4,16 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+### Added
+- The character is now the Meshy-made figure, with a breathing idle and a wave.
+- Order a drink from the character, then sit at the corner table and tap it to sip.
+- A guided tour that flies the camera to each thing you can tap (the **?** button replays it).
+- Music notes float up from the record player while it plays.
+- Mynas fly in and perch on the power lines; a quiet street sound bed and a mute button.
+
+### Changed
+- Cards close when you scroll.
+
 ## [1.0.0] - 2026-10-24
 
 ### Added

@@ -6,6 +6,14 @@ export const site = {
   musicUrl: "", // drop a royalty-free lofi track in web/ and put its file name here; empty = built-in synth loop
 };
 
+// drinks you can order from the character (ids match TPL_drink_* in the 3D scene)
+export const drinks = [
+  { id: "latte", name: "Iced latte", emoji: "🧋" },
+  { id: "matcha", name: "Matcha latte", emoji: "🍵" },
+  { id: "thaitea", name: "Thai tea", emoji: "🧡" },
+  { id: "espresso", name: "Espresso", emoji: "☕" },
+];
+
 export const cards = {
   about: {
     title: "Pongsakorn Naklang",

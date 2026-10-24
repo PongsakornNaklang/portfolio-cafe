@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { cards, site } from "./content.js";
+import { cards, site, drinks } from "./content.js?v=9";
+import { createSound, createStreetLife } from "./life.js?v=9";
 
 // ---------------------------------------------------------------- time of day (visitor's clock; ?time=night to test)
 const PRESETS = {
@@ -133,6 +134,9 @@ const doorLook = new THREE.Vector3(4.16, 1.55, -1.5), counterLook = new THREE.Ve
 const scrollEl = document.getElementById("scroll");
 const OUT = 3, IN = 4; // screen-heights of scrolling for the street walk and the walk inside
 let progress = 0, inProgress = 0;
+let director = null; // { pos, look, fov } while the tour or the table owns the camera
+const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
+let camFov = 30, camReady = false;
 function placeCamera() {
   const t = THREE.MathUtils.clamp(scrollY / (OUT * innerHeight), 0, 1);
   const u = doorOpen ? THREE.MathUtils.clamp((scrollY - OUT * innerHeight) / (IN * innerHeight), 0, 1) : 0;
@@ -142,17 +146,31 @@ function placeCamera() {
   if (inProgress > 0.001) {
     camera.position.copy(inside.getPoint(inProgress));
     look.lerp(doorLook, ease(Math.min(inProgress / 0.45, 1))).lerp(counterLook, ease(THREE.MathUtils.clamp((inProgress - 0.45) / 0.55, 0, 1)));
-  } else camera.position.copy(walk.getPoint(progress));
-  camera.lookAt(look);
+  }
+  let pos = inProgress > 0.001 ? inside.getPoint(inProgress) : walk.getPoint(progress);
   // the Blender shots are framed for 4:3; on a tall phone screen widen the view so the shop still fits across
-  const fov = THREE.MathUtils.lerp(THREE.MathUtils.lerp(rig.cams.CAM_front.fov, rig.cams.CAM_close.fov, ease(progress)), 58, ease(inProgress));
+  let fov = THREE.MathUtils.lerp(THREE.MathUtils.lerp(rig.cams.CAM_front.fov, rig.cams.CAM_close.fov, ease(progress)), 58, ease(inProgress));
+  if (director) { pos = director.pos; look.copy(director.look); fov = director.fov; }
+  const k0 = camReady ? 0.07 : 1; // fly smoothly between shots
+  camPos.lerp(pos, k0); camLook.lerp(look, k0); camFov += (fov - camFov) * k0;
+  camReady = true;
+  camera.position.copy(camPos);
+  camera.lookAt(camLook);
   const k = Math.max(1, (4 / 3) / camera.aspect);
-  camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(fov) / 2) * k));
+  camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(camFov) / 2) * k));
   camera.updateProjectionMatrix();
   const hint = document.getElementById("hint");
   hint.textContent = t > 0.9 && doorOpen ? "Scroll to step inside ↓" : "Scroll to walk to the shop ↓";
-  hint.style.opacity = (t > 0.9 && !doorOpen) || u > 0.95 ? 0 : 1;
+  hint.style.opacity = director || (t > 0.9 && !doorOpen) || u > 0.95 ? 0 : 1;
 }
+
+function shotOf(o, dist = 2.6) {
+  const c = new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3());
+  const pos = new THREE.Vector3(c.x * 0.75 + close.x * 0.25, c.y + 0.35, Math.max(c.z + dist, 2.4)); // stay outside the glass
+  // aim a little low so the object sits in the upper half, clear of the tour card at the bottom
+  return { pos, look: c.clone().add(new THREE.Vector3(0, -0.12 * pos.distanceTo(c), 0)), fov: 34 };
+}
+function lockScroll(on) { document.documentElement.style.overflow = on ? "hidden" : ""; }
 
 function toggleDoor() {
   doorOpen = !doorOpen;
@@ -196,7 +214,7 @@ addEventListener("pointermove", (e) => {
   tip.style.opacity = o ? 1 : 0;
   if (o) {
     const k = o.userData.hotspot;
-    tip.textContent = k === "door" ? (doorOpen ? "Close the door" : "Open the door") : LABEL[k] || cards[k]?.title || k;
+    tip.textContent = k === "sip" ? "Take a sip" : k === "door" ? (doorOpen ? "Close the door" : "Open the door") : LABEL[k] || cards[k]?.title || k;
     tip.style.left = e.clientX + "px";
     tip.style.top = e.clientY + "px";
   }
@@ -204,12 +222,13 @@ addEventListener("pointermove", (e) => {
 
 let bubble = null;
 addEventListener("click", (e) => {
-  if (bubble?.contains(e.target) || e.target.closest?.("#tour, #help, #board")) return;
+  if (bubble?.contains(e.target) || e.target.closest?.("#tour, #help, #board, #mute, #seatbar")) return;
   bubble?.remove();
   bubble = null;
   const o = hotspotAt(e.clientX, e.clientY);
   if (!o) return;
   const key = o.userData.hotspot;
+  if (key === "sip") return sip();
   feedback(o, !["hello", "skills", "door", "clock", "lamp", "guestbook"].includes(key)); // flat or hanging things: sound + buzz only
   tip.style.opacity = 0;
   const r = screenRect(o);
@@ -222,7 +241,7 @@ addEventListener("click", (e) => {
     return showBubble({ title: d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       body: d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) }, r);
   }
-  if (key === "about") wave();
+  if (key === "about") { wave(); return showBubble({ ...cards.about, actions: [{ label: "☕ Order a drink", run: () => drinkMenu(r) }] }, r); }
   const c = cards[key];
   if (c) showBubble(c, r);
 });
@@ -250,8 +269,10 @@ function showBubble(c, r, ttl = 0) {
     `<button class="x" aria-label="Close">×</button><h2>${esc(c.title)}</h2>` +
     (c.body ? `<p>${esc(c.body)}</p>` : "") +
     (c.rows ? `<table>${c.rows.map(([a, b]) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join("")}</table>` : "") +
-    [].concat(c.link || [], c.links || []).map((l) => `<a class="btn" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)} ↗</a>`).join(" ");
+    [].concat(c.link || [], c.links || []).map((l) => `<a class="btn" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)} ↗</a>`).join(" ") +
+    (c.actions ? `<div class="acts">${c.actions.map((a, i) => `<button class="btn" data-act="${i}">${esc(a.label)}</button>`).join("")}</div>` : "");
   document.body.append(bubble);
+  bubble.querySelectorAll("[data-act]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); c.actions[+b.dataset.act].run(); }));
   bubble.querySelector(".x").onclick = () => { bubble.remove(); bubble = null; };
   const w = bubble.offsetWidth, hgt = bubble.offsetHeight, gap = 20, m = 16;
   const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
@@ -271,40 +292,8 @@ function showBubble(c, r, ttl = 0) {
   if (ttl) { const b = bubble; setTimeout(() => { b.remove(); if (bubble === b) bubble = null; }, ttl); }
 }
 addEventListener("keydown", (e) => { if (e.key === "Escape") { bubble?.remove(); bubble = null; } });
+addEventListener("scroll", () => { if (bubble && !bubble.dataset.keep) { bubble.remove(); bubble = null; } }, { passive: true });
 
-// ---------------------------------------------------------------- first-visit tutorial (reopen with the ? button)
-const STEPS = [
-  { icon: "↓", title: "Walk up to the shop", body: "Scroll (or swipe) down to cross the street and reach the window." },
-  { icon: "☝︎", title: "Tap what looks interesting", body: "The iPod in the case is a project. The person, the signs, the mailbox, the clock and the lamps all do something. Open the door to step inside." },
-  { icon: "♪", title: "Music's on the house", body: "Tap the record player on the table inside to turn the music on or off." },
-];
-function startTour(force = false) {
-  let seen = false;
-  try { seen = localStorage.getItem("nakang-tour") === "done"; } catch {}
-  if (seen && !force) return;
-  const tour = document.getElementById("tour"), next = document.getElementById("tour-next");
-  let i = 0;
-  const show = () => {
-    const s = STEPS[i];
-    document.getElementById("tour-step").textContent = `${i + 1} / ${STEPS.length}`;
-    document.getElementById("tour-icon").textContent = s.icon;
-    document.getElementById("tour-title").textContent = s.title;
-    document.getElementById("tour-body").textContent = s.body;
-    next.textContent = i === STEPS.length - 1 ? "Let's go" : "Next";
-    const b = tour.querySelector(".bubble");
-    b.style.animation = "none"; b.offsetWidth; b.style.animation = ""; // replay the pop for each step
-  };
-  const close = () => {
-    tour.hidden = true;
-    try { localStorage.setItem("nakang-tour", "done"); } catch {}
-  };
-  next.onclick = (e) => { e.stopPropagation(); i < STEPS.length - 1 ? (i++, show()) : close(); };
-  document.getElementById("tour-skip").onclick = (e) => { e.stopPropagation(); close(); };
-  tour.onclick = (e) => { if (e.target === tour) close(); };
-  tour.hidden = false;
-  show();
-  next.focus();
-}
 document.getElementById("help").onclick = (e) => { e.stopPropagation(); startTour(true); };
 
 // ---------------------------------------------------------------- click feedback: a soft pop, a tiny buzz on phones, a squash-bounce
@@ -486,13 +475,157 @@ function animateCharacter(dt) {
   headBone.quaternion.premultiply(_pq.clone().invert().multiply(look).multiply(_pq));
 }
 
-startTour(); // after everything above is defined (STEPS, handlers)
+// ---------------------------------------------------------------- order a drink, then sit at the corner table
+const table = scene.getObjectByName("mcm_table");
+const drinkTpl = Object.fromEntries(drinks.map((d) => [d.id, scene.getObjectByName(`TPL_drink_${d.id}`)]));
+for (const t of Object.values(drinkTpl)) t?.parent?.remove(t);
+let myDrink = null, seated = false;
+function drinkMenu(r) {
+  bubble?.remove();
+  showBubble({ title: "Menu", body: "What can I get you?",
+    actions: drinks.map((d) => ({ label: `${d.emoji} ${d.name}`, run: () => order(d) })) }, r);
+}
+function order(d) {
+  bubble?.remove(); bubble = null;
+  wave();
+  const me = scene.getObjectByName("HOT_character");
+  showBubble({ title: `${d.name}, coming right up!`, body: "Take a seat at the corner table." }, screenRect(me), 1800);
+  setTimeout(() => sitDown(d), 1900);
+}
+function sitDown(d) {
+  const top = new THREE.Box3().setFromObject(table);
+  const c = top.getCenter(new THREE.Vector3());
+  myDrink?.parent?.remove(myDrink);
+  myDrink = drinkTpl[d.id].clone(true);
+  myDrink.position.set(c.x - 0.15, top.max.y, c.z + 0.05);
+  myDrink.userData.hotspot = "sip";
+  myDrink.userData.level = 1;
+  gltf.scene.add(myDrink); // inside gltf.scene so taps find it
+  seated = true;
+  lockScroll(true);
+  // sitting on the chair by the bookshelf: your drink in front, the room and the street window beyond
+  director = { pos: new THREE.Vector3(c.x - 0.8, 1.35, c.z - 0.05), look: new THREE.Vector3(c.x - 0.1, 0.9, c.z + 0.9), fov: 58 };
+  showSeatBar(d);
+}
+function showSeatBar(d) {
+  const bar = document.getElementById("seatbar");
+  bar.hidden = false;
+  document.getElementById("seat-title").textContent = `${d.emoji} ${d.name}`;
+  document.getElementById("seat-leave").onclick = (e) => { e.stopPropagation(); standUp(); };
+}
+function sip() {
+  if (!myDrink) return;
+  const lq = myDrink.getObjectByName(myDrink.name + "_liquid") || myDrink.children.find((c) => /_liquid$/.test(c.name));
+  myDrink.userData.level = Math.max(0, myDrink.userData.level - 0.25);
+  if (lq) lq.scale.y = Math.max(0.02, myDrink.userData.level);
+  if (myDrink.userData.level === 0) showBubble({ title: "All gone!", body: "Thanks for stopping by." }, screenRect(myDrink), 1600);
+}
+function standUp() {
+  seated = false;
+  director = null;
+  lockScroll(false);
+  document.getElementById("seatbar").hidden = true;
+}
+
+// ---------------------------------------------------------------- music notes float up from the record player while it plays
+const noteTex = ["♪", "♫"].map((ch) => {
+  const cv = document.createElement("canvas"); cv.width = cv.height = 128;
+  const x = cv.getContext("2d"); x.fillStyle = "#2b2420"; x.font = "bold 96px serif"; x.textAlign = "center"; x.textBaseline = "middle";
+  x.fillText(ch, 64, 70);
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
+});
+const notes = [];
+let noteTimer = 0;
+const recordObj = scene.getObjectByName("HOT_record");
+function animateNotes(dt) {
+  if (musicOn() && (noteTimer -= dt) < 0) {
+    noteTimer = 0.55;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: noteTex[Math.random() < 0.5 ? 0 : 1], transparent: true, depthWrite: false }));
+    const p = new THREE.Box3().setFromObject(recordObj).getCenter(new THREE.Vector3());
+    sp.position.set(p.x + (Math.random() - 0.5) * 0.2, p.y + 0.15, p.z);
+    sp.scale.setScalar(0.16);
+    sp.userData = { t: 0, x0: sp.position.x, ph: Math.random() * 6 };
+    scene.add(sp);
+    notes.push(sp);
+  }
+  for (let i = notes.length - 1; i >= 0; i--) {
+    const sp = notes[i], u = sp.userData;
+    u.t += dt;
+    sp.position.y += dt * 0.35;
+    sp.position.x = u.x0 + Math.sin(u.t * 3 + u.ph) * 0.08;
+    sp.material.opacity = Math.min(1, u.t * 3) * Math.max(0, 1 - u.t / 2.2);
+    if (u.t > 2.2) { scene.remove(sp); notes.splice(i, 1); }
+  }
+}
+
+// ---------------------------------------------------------------- street life + sound (sound starts on the first tap or key)
+const sound = createSound();
+// traffic stays parked until the Meshy tuk-tuk and taxi (with their dog and cat drivers) replace the placeholders
+const life = createStreetLife({ scene, camera, sound, traffic: new URLSearchParams(location.search).has("traffic") });
+const startSound = () => { sound.start(); removeEventListener("pointerdown", startSound); removeEventListener("keydown", startSound); };
+addEventListener("pointerdown", startSound);
+addEventListener("keydown", startSound);
+const muteBtn = document.getElementById("mute");
+muteBtn.onclick = (e) => { e.stopPropagation(); sound.start(); muteBtn.textContent = sound.toggleMute() ? "🔇" : "🔊"; };
+
+// ---------------------------------------------------------------- guided tour: the camera visits everything you can tap
+const TOUR = [
+  { title: "Welcome to NAKANG", body: "A little shop for my work. I'll show you what you can tap — or scroll anytime to walk around on your own.", shot: () => ({ pos: close.clone(), look: shopFront.clone().setY(1.9), fov: rig.cams.CAM_close.fov }) },
+  { obj: "HOT_project_iport", title: "Projects", body: "Everything I've built sits in this case. Tap one to read about it and open it." },
+  { obj: "HOT_character", title: "That's me", body: "Tap to say hi, read about me, or order a drink and sit down for a bit." },
+  { obj: "HOT_menu", title: "The menu", body: "My skills and tools, listed like a coffee menu." },
+  { obj: "HOT_record", title: "Music", body: "Tap the record player to put some lofi on." },
+  { obj: "HOT_board", title: "Guestbook", body: "Leave a note — draw anything on the blue board.",
+    shot: () => ({ pos: new THREE.Vector3(2.4, 1.75, -1.75), look: new THREE.Vector3(4.9, 1.45, -1.75), fov: 40 }) },
+  { obj: "HOT_clock", title: "Clock", body: "Shows your time. The shop lights follow it too." },
+  { obj: "HOT_lamp_0", title: "Lamps", body: "Tap a lamp to switch it on or off." },
+  { obj: "HOT_door", title: "The door", body: "Tap to open it, then keep scrolling to walk inside." },
+  { obj: "HOT_mailbox", title: "Say hello", body: "The mailbox has my contact details." },
+];
+function startTour(force = false) {
+  let seen = false;
+  try { seen = localStorage.getItem("nakang-tour") === "done"; } catch {}
+  if (seen && !force) return;
+  standUp();
+  const tour = document.getElementById("tour"), next = document.getElementById("tour-next"), back = document.getElementById("tour-back");
+  let i = 0;
+  const show = () => {
+    const s = TOUR[i];
+    document.getElementById("tour-step").textContent = `${i + 1} / ${TOUR.length}`;
+    document.getElementById("tour-icon").textContent = "";
+    document.getElementById("tour-title").textContent = s.title;
+    document.getElementById("tour-body").textContent = s.body;
+    next.textContent = i === TOUR.length - 1 ? "Let's go" : "Next";
+    back.hidden = i === 0;
+    director = s.shot ? s.shot() : shotOf(scene.getObjectByName(s.obj), s.obj === "HOT_mailbox" ? 3.2 : 2.6);
+    if (s.obj) feedback(scene.getObjectByName(s.obj), false);
+    const b = tour.querySelector(".bubble");
+    b.style.animation = "none"; b.offsetWidth; b.style.animation = "";
+  };
+  const close = () => {
+    tour.hidden = true;
+    director = null;
+    lockScroll(false);
+    try { localStorage.setItem("nakang-tour", "done"); } catch {}
+  };
+  next.onclick = (e) => { e.stopPropagation(); i < TOUR.length - 1 ? (i++, show()) : close(); };
+  back.onclick = (e) => { e.stopPropagation(); if (i > 0) { i--; show(); } };
+  document.getElementById("tour-skip").onclick = (e) => { e.stopPropagation(); close(); };
+  tour.hidden = false;
+  lockScroll(true);
+  show();
+  next.focus();
+}
+
+startTour(); // after everything above is defined
 const frameClock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
   const dt = Math.min(frameClock.getDelta(), 0.1);
   placeCamera();
   animateCharacter(dt);
   animateProps(dt);
+  animateNotes(dt);
+  life.update(dt, performance.now() / 1000, !director && progress < 0.45);
   animateBounces(performance.now());
   renderer.render(scene, camera);
 });

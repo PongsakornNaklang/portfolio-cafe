@@ -1865,7 +1865,8 @@ def tpl_tuktuk(name, loc):
     cyl(f"{name}_bar", 0.02, 0.56, (0.86, 0, 1.06), black, parent=g, rot=(90, 0, 0))
     ball(f"{name}_lamp", 0.075, (1.33, 0, 0.78), mat("headlight", color="#fff6cc", emit=2.0), parent=g, scale=(0.6, 1, 1))
     cyl(f"{name}_bumper", 0.018, 0.6, (1.38, 0, 0.52), chrome, parent=g, rot=(90, 0, 0))
-    person(f"{name}_driver", (0.28, 0, 0.88), g, top="#3c6fd8", pose="ride", hand=(0.56, 0.18), foot=(0.42, -0.36))
+    bpy.context.view_layer.update()
+    seated_animal("dog", f"{name}_driver", g, seat=g.matrix_world @ Vector((0.25, 0, 0.9)), hands=None, pitch=60, scale=1.05)
     for i, (x, y) in enumerate(((1.02, 0), (-0.86, -0.6), (-0.86, 0.6))):
         _pivot_wheel(f"{name}_wheel_{i}", (x, y, 0.24), 0.24, 0.16, g, tyre, hub)
     return g
@@ -1882,7 +1883,7 @@ def tpl_car(name, loc):
     g = empty(name, loc)
     paint, top = mat("carpaint", color="#ff6fa5", rough=0.3), mat("carpaint_top", color="#ff6fa5", rough=0.3)
     tyre, hub = mat("tyre", color="#1d1d1f", rough=0.8), mat("steel", rough=0.3, metal=0.8)
-    win, dark = mat("car_window", color="#2b3440", rough=0.15, metal=0.3), mat("car_trim", color="#3a3d42", rough=0.6)
+    win, dark = mat("car_window", color="#2b3440", rough=0.1, metal=0.2, alpha=0.45), mat("car_trim", color="#3a3d42", rough=0.6)
     front, rear = _arch(1.2), _arch(-1.2)
     outline = ([(1.9, 0.25), (1.97, 0.58), (1.86, 0.78), (1.1, 0.88), (-1.2, 0.9), (-1.86, 0.86), (-1.97, 0.6), (-1.9, 0.25)]
                + rear[::-1] + front[::-1])
@@ -1903,6 +1904,8 @@ def tpl_car(name, loc):
              extrude=0.002, fonts=SIGN_FONTS, rot=(90, 0, rz), align="CENTER")
     for i, (x, y) in enumerate(((1.2, -0.72), (1.2, 0.72), (-1.2, -0.72), (-1.2, 0.72))):
         _pivot_wheel(f"{name}_wheel_{i}", (x, y, 0.33), 0.33, 0.22, g, tyre, hub)
+    bpy.context.view_layer.update()  # a dog at the wheel (right-hand drive), seen through the tinted glass
+    seated_animal("dog", f"{name}_driver", g, seat=g.matrix_world @ Vector((-0.05, -0.33, 0.62)), hands=None, pitch=62, scale=0.95)
     return g
 
 
@@ -1920,7 +1923,8 @@ def tpl_motorbike(name, loc):
     cyl(f"{name}_bar", 0.02, 0.62, (0.5, 0, 1.06), black, parent=g, rot=(90, 0, 0))
     ball(f"{name}_lamp", 0.07, (0.62, 0, 1.0), mat("headlight", color="#fff6cc", emit=2.0), parent=g, scale=(0.6, 1, 1))
     cyl(f"{name}_exhaust", 0.03, 0.5, (-0.45, 0.14, 0.32), chrome, parent=g, rot=(0, 95, 0))
-    person(f"{name}_rider", (-0.18, 0, 0.84), g, top="#ff8a1f", pose="ride", helmet="#f4f2ec", hand=(0.62, 0.2), foot=(0.33, -0.38))
+    bpy.context.view_layer.update()
+    seated_animal("cat", f"{name}_rider", g, seat=g.matrix_world @ Vector((-0.2, 0, 0.86)), hands=None, pitch=60, helmet="#f4f2ec", scale=1.35)
     for i, x in enumerate((0.72, -0.6)):
         _pivot_wheel(f"{name}_wheel_{i}", (x, 0, 0.28), 0.28, 0.09, g, tyre, hub)
     return g
@@ -2039,6 +2043,58 @@ def tpl_drink(name, loc, liquid, foam=None, cup="glass"):
     if cup == "glass":
         cyl(f"{name}_straw", 0.006, 0.2, (0.015, 0, 0.13), mat("stool_red", rough=0.4), parent=g, rot=(0, 10, 0))
     return g
+
+
+def seated_animal(kind, name, parent, seat, hands, pitch=55, helmet=None, scale=1.0):
+    """A dog or cat sitting up to drive: the rigged animal is tipped back onto its haunches (pitch, degrees) so its
+    hips sit on `seat`, front legs reach forward to `hands`, then the pose is baked into plain meshes under `parent`."""
+    builder = tpl_dog if kind == "dog" else tpl_cat
+    g = builder(name, (0, 0, 0))
+    g.scale = (scale, scale, scale)
+    rig = bpy.data.objects[f"{name}_rig"]
+    hip_local = Vector((-0.2, 0, 0.42)) if kind == "dog" else Vector((-0.16, 0, 0.27))
+    g.rotation_euler = (0, radians(-pitch), 0)
+    bpy.context.view_layer.update()
+    # rear legs fold forward under the body (sitting), front legs reach for the bar
+    for i, ang in ((2, -80), (3, -80)):
+        b = rig.pose.bones.get(f"{name}_leg_{i}")
+        if b:
+            ax = (rig.matrix_world @ b.bone.matrix_local).to_3x3().inverted() @ Vector((0, 1, 0))
+            b.rotation_mode = "AXIS_ANGLE"; b.rotation_axis_angle = (radians(ang), *ax.normalized())
+    for i in (0, 1):
+        b = rig.pose.bones.get(f"{name}_leg_{i}")
+        if b:
+            ax = (rig.matrix_world @ b.bone.matrix_local).to_3x3().inverted() @ Vector((0, 1, 0))
+            b.rotation_mode = "AXIS_ANGLE"; b.rotation_axis_angle = (radians(-pitch - 25), *ax.normalized())
+    bpy.context.view_layer.update()
+    # move so the hips land on the seat
+    hip_world = g.matrix_world @ hip_local
+    g.location += Vector(seat) - hip_world
+    bpy.context.view_layer.update()
+    body = next(o for o in rig.children if o.type == "MESH")
+    bake = bpy.data.meshes.new_from_object(body.evaluated_get(bpy.context.evaluated_depsgraph_get()))
+    bake.transform(body.matrix_world)
+    baked = bpy.data.objects.new(f"{name}_posed", bake)
+    _coll["current"].objects.link(baked)
+    # keep eyes, nose and collar (plain children of g) in place, re-parent everything under the vehicle
+    mats = {o: o.matrix_world.copy() for o in g.children_recursive if o.type == "MESH" and o is not body}
+    for o in [body, rig]:
+        bpy.data.objects.remove(o)
+    for o in [baked, *mats]:  # hang everything off the vehicle, keeping where it is in the world
+        m = mats.get(o, o.matrix_world.copy())
+        o.parent = parent
+        o.matrix_parent_inverse = parent.matrix_world.inverted()
+        o.matrix_world = m
+    bpy.data.objects.remove(g)
+    if helmet:
+        top = max((baked.matrix_world @ v.co).z for v in baked.data.vertices)
+        head = max(baked.data.vertices, key=lambda v: (baked.matrix_world @ v.co).z)
+        hp = baked.matrix_world @ head.co
+        h = ball(f"{name}_helmet", 0.12 * scale, (hp.x - 0.03, hp.y, top - 0.05 * scale), mat(f"{name}_helmet", color=helmet, rough=0.3),
+                 parent=None, scale=(1, 1, 0.8))
+        h.parent = parent
+        h.matrix_parent_inverse = parent.matrix_world.inverted()
+    return baked
 
 
 def build_templates():

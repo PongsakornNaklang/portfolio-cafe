@@ -51,6 +51,20 @@
     #help { position: fixed; right: 16px; bottom: 20px; width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--paper);
             box-shadow: 0 4px 14px rgba(0,0,0,.15); font: 800 18px "Archivo", sans-serif; cursor: pointer; z-index: 4; }
     #hint { white-space: nowrap; }
+    #mute { position: fixed; right: 64px; bottom: 20px; width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--paper);
+            box-shadow: 0 4px 14px rgba(0,0,0,.15); font-size: 17px; cursor: pointer; z-index: 4; }
+    #tour { background: none; pointer-events: none; place-items: end start; padding: 0 16px 20px; }
+    #tour .bubble { pointer-events: auto; min-height: 0; width: min(300px, calc(100vw - 32px)); padding: 12px 14px 12px; }
+    #tour .bubble h2 { font-size: 17px; }
+    #tour .bubble p { font-size: 14px; line-height: 1.45; }
+    .bubble .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .bubble .acts .btn { margin: 0; border: 0; cursor: pointer; font: 600 14px "Anuphan", sans-serif; }
+    #seatbar { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px;
+               padding: 8px 10px 8px 18px; border-radius: 999px; background: var(--paper); box-shadow: 0 6px 20px rgba(0,0,0,.2); z-index: 4;
+               font-weight: 600; white-space: nowrap; }
+    #seatbar[hidden] { display: none; }
+    #seatbar .hint { color: #7a7266; font-weight: 400; font-size: 13px; }
+    #seatbar button { font: 600 14px "Anuphan", sans-serif; border: 0; border-radius: 999px; padding: 7px 14px; background: var(--sign); cursor: pointer; }
     /* guestbook drawing window */
     #board { border: 0; border-radius: 20px; padding: 16px; background: var(--paper); width: min(760px, calc(100vw - 32px), calc((100dvh - 210px) * 1.5 + 44px)); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
     #board::backdrop { background: rgba(20,18,16,.45); }
@@ -79,13 +93,15 @@
   <div id="hint">Scroll to walk to the shop ↓</div>
   <div id="tip"></div>
   <button id="help" aria-label="How to use this page">?</button>
+  <button id="mute" aria-label="Sound on or off">🔊</button>
+  <div id="seatbar" hidden><span id="seat-title"></span><span class="hint">Tap your drink to sip</span><button id="seat-leave">Back to the street</button></div>
   <div id="tour" hidden role="dialog" aria-modal="true" aria-labelledby="tour-title">
     <div class="bubble">
       <div class="step" id="tour-step"></div>
       <div class="icon" id="tour-icon" aria-hidden="true"></div>
       <h2 id="tour-title"></h2>
       <p id="tour-body"></p>
-      <div class="row"><button class="skip" id="tour-skip">Skip</button><button class="next" id="tour-next">Next</button></div>
+      <div class="row"><button class="skip" id="tour-skip">Skip</button><span><button class="skip" id="tour-back" hidden>Back</button> <button class="next" id="tour-next">Next</button></span></div>
     </div>
   </div>
   <dialog id="board" aria-labelledby="board-title">
@@ -105,6 +121,6 @@
     </div>
   </dialog>
   <div id="loading">NAKANG</div>
-  <script type="module" src="main.js"></script>
+  <script type="module" src="main.js?v=9"></script>
 </body>
 </html>
