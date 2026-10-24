@@ -4,6 +4,8 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-24
+
 ### Added
 - The character is now the Meshy-made figure, with a breathing idle and a wave.
 - Order a drink from the character, then sit at the corner table and tap it to sip.
@@ -63,7 +65,8 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 ### Added
 - Blender build script for the 3D toy storefront: street, NAKANG lightbox sign, shop front, interior seen through the glass, character, and clickable hotspots.
 
-[Unreleased]: https://github.com/PongsakornNaklang/portfolio-cafe/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/PongsakornNaklang/portfolio-cafe/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/PongsakornNaklang/portfolio-cafe/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/PongsakornNaklang/portfolio-cafe/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/PongsakornNaklang/portfolio-cafe/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/PongsakornNaklang/portfolio-cafe/compare/v0.1.0...v0.2.0
