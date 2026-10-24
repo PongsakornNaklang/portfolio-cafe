@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { cards, site, drinks } from "./content.js?v=11";
-import { createSound, createStreetLife } from "./life.js?v=11";
+import { cards, site, drinks } from "./content.js?v=12";
+import { createSound, createStreetLife } from "./life.js?v=12";
 
 // ---------------------------------------------------------------- time of day (visitor's clock; ?time=night to test)
 const PRESETS = {
@@ -691,6 +691,8 @@ function startTour(force = false) {
   let i = 0;
   const show = () => {
     const s = TOUR[i];
+    bubble?.remove(); // a card opened on the last stop would be left floating where that object was
+    bubble = null;
     document.getElementById("tour-step").textContent = `${i + 1} / ${TOUR.length}`;
     document.getElementById("tour-icon").textContent = "";
     document.getElementById("tour-title").textContent = s.title;
@@ -704,6 +706,8 @@ function startTour(force = false) {
     b.style.animation = "none"; b.offsetWidth; b.style.animation = "";
   };
   const close = () => {
+    bubble?.remove();
+    bubble = null;
     tour.hidden = true;
     director = null;
     lockScroll(false);
