@@ -96,9 +96,8 @@ export function createStreetLife({ scene, camera, sound }) {
 
   // ---------------------------------------------------------------- update
   let tVeh = 2, tBird = 3;
-  function update(dt, time, roadOpen = true) {
-    // when the camera has walked up onto the road (the window shot), traffic would drive through it: pause new cars
-    if ((tVeh -= dt) < 0) { if (roadOpen) spawnVehicle(); tVeh = rand(3.5, 9); }
+  function update(dt, time) {
+    if ((tVeh -= dt) < 0) { spawnVehicle(); tVeh = rand(3.5, 9); }
     if ((tBird -= dt) < 0) {
       if (actors.filter((a) => a.type === "bird").length < 4) spawnBird();
       tBird = rand(4, 10);

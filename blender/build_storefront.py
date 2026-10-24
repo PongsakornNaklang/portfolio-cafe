@@ -1316,7 +1316,7 @@ def build_interior():
     steel = mat("steel", rough=0.35, metal=0.6)
     wall = mat("wall", rough=0.85)  # white walls and a smooth white ceiling
     floor = image_mat("concrete_floor", concrete_image("concrete_floor", "#aeadaa", seed=23), rough=0.55, box_scale=1 / 1.5)  # raw cement
-    box("in_floor", (6.2 + EXTRA_W, 4.0, 0.05), (EXTRA_W / 2, 2.4, 0.175), floor, bevel=0)
+    box("in_floor", (6.2 + EXTRA_W, 4.4, 0.05), (EXTRA_W / 2, 2.2, 0.175), floor, bevel=0)  # runs out to the step, no gap under the glass
     box("in_backwall", (6.2 + EXTRA_W, 0.2, 3.6), (EXTRA_W / 2, 4.4, 1.95), wall, bevel=0)
     box("in_ceiling", (6.2 + EXTRA_W, 4.0, 0.1), (EXTRA_W / 2, 2.4, 3.7), wall, bevel=0)
     # left wall behind the bar: pine plywood sheets (1.22 m wide); right wall white (the board hangs there)

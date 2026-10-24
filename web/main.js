@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { cards, site, drinks } from "./content.js?v=13";
-import { createSound, createStreetLife } from "./life.js?v=13";
+import { cards, site, drinks } from "./content.js?v=14";
+import { createSound, createStreetLife } from "./life.js?v=14";
 
 // ---------------------------------------------------------------- time of day (visitor's clock; ?time=night to test)
 const PRESETS = {
@@ -545,12 +545,15 @@ function order(d) {
   setTimeout(() => pickSeat(d), 1900);
 }
 // step back so the whole room shows, and float a pin over every seat: tap one to sit there
-function pickSeat(d) {
+// from: the seat you're moving from (Cancel takes you back to it); null on a fresh order
+function pickSeat(d, from = null) {
   clearPins();
   picking = d;
+  seated = false;
   lockScroll(true);
   director = { pos: new THREE.Vector3(3.3, 4.6, 4.4), look: new THREE.Vector3(3.4, 0.2, -1.4), fov: 52 };
-  pins = SEATS.map((s, i) => {
+  pins = SEATS.map((s, i) => i === from ? null : s).map((s, i) => {
+    if (!s) return null;
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: pinTex, transparent: true, depthTest: false, sizeAttenuation: false }));
     sp.position.set(s.p.x, s.floor + 0.9, s.p.z);
     sp.scale.setScalar(0.055); // a fixed size on screen, easy to tap
@@ -558,19 +561,20 @@ function pickSeat(d) {
     sp.userData = { hotspot: "seat", seat: i };
     gltf.scene.add(sp); // inside gltf.scene so taps find it
     return sp;
-  });
-  showSeatBar("Pick a seat", "Tap a yellow pin", "Cancel");
+  }).filter(Boolean);
+  showSeatBar("Pick a seat", "Tap a yellow pin", "Cancel", from === null ? standUp : () => sitAt(from));
 }
 function clearPins() { for (const p of pins) p.parent?.remove(p); pins = []; }
 function sitAt(i) {
   const d = picking, s = SEATS[i];
   picking = null;
   clearPins();
+  const level = myDrink?.userData.id === d.id ? myDrink.userData.level : 1; // moving seats: your drink comes with you
   myDrink?.parent?.remove(myDrink);
   myDrink = drinkTpl[d.id].clone(true);
   myDrink.position.copy(s.spot);
-  myDrink.userData.hotspot = "sip";
-  myDrink.userData.level = 1;
+  Object.assign(myDrink.userData, { hotspot: "sip", id: d.id, level });
+  fill(myDrink);
   gltf.scene.add(myDrink);
   seated = true;
   // eyes above the seat, a little back from the table, looking over your drink and on into the room
@@ -579,16 +583,19 @@ function sitAt(i) {
   gaze.yaw = gaze.pitch = 0;
   renderer.domElement.style.touchAction = "none"; // a finger drag turns your head instead of scrolling
   director = { pos, look: ahead, base: ahead.clone().sub(pos), fov: 66 };
-  showSeatBar(`${d.emoji} ${d.name}`, "Tap your drink to sip · drag to look around", "Back to the street");
+  showSeatBar(`${d.emoji} ${d.name}`, "Tap your drink to sip · drag to look around", "Back to the street", standUp, () => pickSeat(d, i));
 }
-function showSeatBar(title, hint, leave) {
+function showSeatBar(title, hint, leave, onLeave, onMove = null) {
   const bar = document.getElementById("seatbar");
   bar.hidden = false;
   document.getElementById("seat-title").textContent = title;
   document.getElementById("seat-hint").textContent = hint;
   const btn = document.getElementById("seat-leave");
   btn.textContent = leave;
-  btn.onclick = (e) => { e.stopPropagation(); standUp(); };
+  btn.onclick = (e) => { e.stopPropagation(); onLeave(); };
+  const move = document.getElementById("seat-move");
+  move.hidden = !onMove;
+  move.onclick = (e) => { e.stopPropagation(); onMove(); };
 }
 // drag to look around while seated (mouse or finger); a drag doesn't count as a tap
 const gaze = { yaw: 0, pitch: 0, drag: null, moved: false };
@@ -612,11 +619,14 @@ function seatedLook() { // called by placeCamera: the seated view turned by the 
   d.applyAxisAngle(_side, gaze.pitch);
   return director.pos.clone().add(d);
 }
+function fill(drink) {
+  const lq = drink.getObjectByName(drink.name + "_liquid") || drink.children.find((c) => /_liquid$/.test(c.name));
+  if (lq) lq.scale.y = Math.max(0.02, drink.userData.level);
+}
 function sip() {
   if (!myDrink) return;
-  const lq = myDrink.getObjectByName(myDrink.name + "_liquid") || myDrink.children.find((c) => /_liquid$/.test(c.name));
   myDrink.userData.level = Math.max(0, myDrink.userData.level - 0.25);
-  if (lq) lq.scale.y = Math.max(0.02, myDrink.userData.level);
+  fill(myDrink);
   if (myDrink.userData.level === 0) showBubble({ title: "All gone!", body: "Thanks for stopping by." }, screenRect(myDrink), 1600);
 }
 function standUp() {
@@ -732,7 +742,7 @@ renderer.setAnimationLoop(() => {
   animateCharacter(dt);
   animateProps(dt);
   animateNotes(dt);
-  life.update(dt, performance.now() / 1000, !director && progress < 0.45);
+  life.update(dt, performance.now() / 1000);
   animateBounces(performance.now());
   renderer.render(scene, camera);
 });

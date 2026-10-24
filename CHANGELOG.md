@@ -7,9 +7,13 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 ### Added
 - After ordering, pick any seat: the corner table, the stools at the middle table, the window bench, or the plastic chair outside.
 - While seated, drag (or swipe) to look around.
+- Change seat while seated; your drink comes with you.
 - The character waves with a little "huh!" at the tour's "That's me" step and whenever he says hello.
 
 ### Fixed
+- Cars and tuk-tuks keep driving past while you're inside or seated, not only on the street.
+- A strip of sky showed through the floor under the shop window.
+- The seat bar no longer covers the sound and ? buttons on narrow screens.
 - Cards, the tour box and buttons block what's behind them: no hover label or tap goes through to the scene.
 - A card opened during the tour no longer stays floating on screen after Next or Back.
 - The tour camera frames each thing whole, instead of cutting off the character's head or the menu, and goes inside so plants and the menu stand no longer block the view.

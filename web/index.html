@@ -63,8 +63,14 @@
                padding: 8px 10px 8px 18px; border-radius: 999px; background: var(--paper); box-shadow: 0 6px 20px rgba(0,0,0,.2); z-index: 4;
                font-weight: 600; white-space: nowrap; }
     #seatbar[hidden] { display: none; }
+    #seatbar #seat-move { background: #efe9dd; }
+    #seatbar #seat-move[hidden] { display: none; }
     #seatbar .hint { color: #7a7266; font-weight: 400; font-size: 13px; }
     #seatbar button { font: 600 14px "Anuphan", sans-serif; border: 0; border-radius: 999px; padding: 7px 14px; background: var(--sign); cursor: pointer; }
+    /* keep clear of the sound and ? buttons in the corner */
+    @media (max-width: 960px) { #seatbar .hint { display: none; } }
+    @media (max-width: 600px) { #seatbar { bottom: 72px; flex-wrap: wrap; justify-content: center; width: max-content; max-width: calc(100vw - 32px);
+                                           border-radius: 22px; padding: 8px 10px; gap: 8px; } }
     /* guestbook drawing window */
     #board { border: 0; border-radius: 20px; padding: 16px; background: var(--paper); width: min(760px, calc(100vw - 32px), calc((100dvh - 210px) * 1.5 + 44px)); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
     #board::backdrop { background: rgba(20,18,16,.45); }
@@ -94,7 +100,7 @@
   <div id="tip"></div>
   <button id="help" aria-label="How to use this page">?</button>
   <button id="mute" aria-label="Sound on or off">🔊</button>
-  <div id="seatbar" hidden><span id="seat-title"></span><span class="hint" id="seat-hint">Tap your drink to sip</span><button id="seat-leave">Back to the street</button></div>
+  <div id="seatbar" hidden><span id="seat-title"></span><span class="hint" id="seat-hint">Tap your drink to sip</span><button id="seat-move">Change seat</button><button id="seat-leave">Back to the street</button></div>
   <div id="tour" hidden role="dialog" aria-modal="true" aria-labelledby="tour-title">
     <div class="bubble">
       <div class="step" id="tour-step"></div>
@@ -121,6 +127,6 @@
     </div>
   </dialog>
   <div id="loading">NAKANG</div>
-  <script type="module" src="main.js?v=13"></script>
+  <script type="module" src="main.js?v=15"></script>
 </body>
 </html>
