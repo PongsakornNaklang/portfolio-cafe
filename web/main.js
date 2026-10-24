@@ -151,7 +151,11 @@ function placeCamera() {
   let pos = inProgress > 0.001 ? inside.getPoint(inProgress) : walk.getPoint(progress);
   // the Blender shots are framed for 4:3; on a tall phone screen widen the view so the shop still fits across
   let fov = THREE.MathUtils.lerp(THREE.MathUtils.lerp(rig.cams.CAM_front.fov, rig.cams.CAM_close.fov, ease(progress)), 58, ease(inProgress));
-  if (director) { pos = director.pos; look.copy(director.base ? seatedLook() : director.look); fov = director.fov; }
+  if (director) { pos = director.pos; look.copy(director.base ? turned(pos, director.base) : director.look); fov = director.fov; }
+  else {
+    if (Math.abs(t - progress) + Math.abs(u - inProgress) > 0.002) { gaze.yaw *= 0.9; gaze.pitch *= 0.9; } // walking: eyes drift back ahead
+    look.copy(turned(pos, look.clone().sub(pos)));
+  }
   const k0 = camReady ? 0.07 : 1; // fly smoothly between shots
   camPos.lerp(pos, k0); camLook.lerp(look, k0); camFov += (fov - camFov) * k0;
   camReady = true;
@@ -646,13 +650,15 @@ function showSeatBar(title, hint, leave, onLeave, onMove = null) {
   move.hidden = !onMove;
   move.onclick = (e) => { e.stopPropagation(); onMove(); };
 }
-// drag to look around while seated (mouse or finger); a drag doesn't count as a tap
+// drag to look around (mouse or finger), on the street and while seated; a drag doesn't count as a tap.
+// On the street a phone keeps vertical swipes for walking (touch-action: pan-y), so a sideways swipe turns your head.
 const gaze = { yaw: 0, pitch: 0, drag: null, moved: false };
 const _up = new THREE.Vector3(0, 1, 0), _side = new THREE.Vector3();
 renderer.domElement.addEventListener("pointerdown", (e) => {
   gaze.moved = false;
-  if (seated) gaze.drag = { x: e.clientX, y: e.clientY };
+  if (!director || seated) gaze.drag = { x: e.clientX, y: e.clientY }; // not during tour shots or picking a seat
 });
+renderer.domElement.style.touchAction = "pan-y";
 addEventListener("pointermove", (e) => {
   if (!gaze.drag) return;
   const dx = e.clientX - gaze.drag.x, dy = e.clientY - gaze.drag.y;
@@ -662,11 +668,12 @@ addEventListener("pointermove", (e) => {
   gaze.drag = { x: e.clientX, y: e.clientY };
 });
 addEventListener("pointerup", () => { gaze.drag = null; });
-function seatedLook() { // called by placeCamera: the seated view turned by the drag
-  const d = director.base.clone().applyAxisAngle(_up, gaze.yaw);
+addEventListener("pointercancel", () => { gaze.drag = null; }); // the browser took the swipe for scrolling
+function turned(pos, dir) { // called by placeCamera: where to look from pos once the drag has turned your head
+  const d = dir.clone().applyAxisAngle(_up, gaze.yaw);
   _side.crossVectors(d, _up).normalize();
   d.applyAxisAngle(_side, gaze.pitch);
-  return director.pos.clone().add(d);
+  return pos.clone().add(d);
 }
 function fill(drink) {
   const lq = drink.getObjectByName(drink.name + "_liquid") || drink.children.find((c) => /_liquid$/.test(c.name));
@@ -693,7 +700,8 @@ function standUp() {
   seated = false;
   picking = null;
   clearPins();
-  renderer.domElement.style.touchAction = "";
+  renderer.domElement.style.touchAction = "pan-y";
+  gaze.yaw = gaze.pitch = 0;
   director = null;
   lockScroll(false);
   document.getElementById("seatbar").hidden = true;

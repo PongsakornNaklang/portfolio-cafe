@@ -6,7 +6,7 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 
 ### Added
 - After ordering, pick any seat: the corner table, the stools at the middle table, the window bench, or the plastic chair outside.
-- While seated, drag (or swipe) to look around.
+- Drag to look around, on the street and while seated. On a phone a sideways swipe turns your head and an up/down swipe still walks; your view eases back to straight ahead as you walk.
 - Change seat while seated; your drink comes with you.
 - Finish your drink and order another without leaving your seat.
 - A slurp when you sip, with a rattle on the last one.
