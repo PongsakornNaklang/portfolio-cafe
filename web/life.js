@@ -7,7 +7,9 @@ const pick = (a) => a[Math.floor(Math.random() * a.length)];
 
 // ---------------------------------------------------------------- sound: one AudioContext, buffers loaded once
 export function createSound() {
-  let ctx = null, master = null, muted = false;
+  let ctx = null, master = null, outside = null, muffler = null, muted = false;
+  // sounds from the street; they go through `outside`, which muffle() turns down and dulls when you're indoors
+  const OUTDOOR = new Set(["car", "motorbike", "dog", "cat", "cat2", "bird", "street"]);
   const buffers = {};
   const files = ["car", "motorbike", "dog", "cat", "cat2", "bird", "street", "huh", "purr"];
   async function start() {
@@ -16,6 +18,10 @@ export function createSound() {
     master = ctx.createGain();
     master.gain.value = muted ? 0 : 1;
     master.connect(ctx.destination);
+    muffler = Object.assign(ctx.createBiquadFilter(), { type: "lowpass" });
+    muffler.frequency.value = 20000;
+    outside = ctx.createGain();
+    outside.connect(muffler).connect(master);
     await Promise.all(files.map(async (f) => {
       try { buffers[f] = await ctx.decodeAudioData(await (await fetch(`sfx/${f}.mp3`)).arrayBuffer()); } catch {}
     }));
@@ -29,7 +35,7 @@ export function createSound() {
     src.loop = loop;
     src.playbackRate.value = rate;
     gain.gain.value = volume;
-    src.connect(gain).connect(master);
+    src.connect(gain).connect(OUTDOOR.has(name) ? outside : master);
     src.start();
     return { src, gain, stop: () => { try { src.stop(); } catch {} } };
   }
@@ -45,9 +51,24 @@ export function createSound() {
       g.gain.linearRampToValueAtTime(volume, t + at + 0.01);
       g.gain.setValueAtTime(volume, t + at + len);
       g.gain.linearRampToValueAtTime(0, t + at + len + 0.03);
-      o.connect(g).connect(master);
+      o.connect(g).connect(outside); // horns and the 7-Eleven chime are out on the street
       o.start(t + at);
       o.stop(t + at + len + 0.05);
+    }
+  }
+  // the 7-Eleven door chime every Thai knows: a high "ding", a low "dong", each a bell that rings out
+  function chime(volume = 0.12) {
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    for (const [at, f] of [[0, 659.25], [0.55, 523.25]]) for (const [h, amp] of [[1, 1], [2, 0.35], [3, 0.15], [4.2, 0.08]]) {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = f * h;
+      g.gain.setValueAtTime(0, t + at);
+      g.gain.linearRampToValueAtTime(volume * amp, t + at + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + at + 1.6 / h);
+      o.connect(g).connect(outside); // horns and the 7-Eleven chime are out on the street
+      o.start(t + at);
+      o.stop(t + at + 1.7);
     }
   }
   // a sip through the straw: filtered noise with a gurgle; the last sip rattles at the bottom of the cup
@@ -77,7 +98,15 @@ export function createSound() {
     lfo.stop(t + len);
   }
   return {
-    start, play, honk, slurp,
+    start, play, honk, slurp, chime,
+    // k = 0: out on the street; 1: indoors with the door shut (street sounds quiet and dull, like through glass)
+    muffle(k) {
+      if (!ctx || Math.abs(k - (this.k ?? 0)) < 0.01) return; // called every frame: only schedule real changes
+      this.k = k;
+      const t = ctx.currentTime;
+      outside.gain.setTargetAtTime(1 - 0.7 * k, t, 0.15);
+      muffler.frequency.setTargetAtTime(600 * (20000 / 600) ** (1 - k), t, 0.15);
+    },
     get ready() { return !!ctx; },
     toggleMute() { muted = !muted; if (master) master.gain.value = muted ? 0 : 1; return muted; },
     get muted() { return muted; },
@@ -87,7 +116,7 @@ export function createSound() {
 // loudness by distance to the listener (the camera)
 const near = (pos, cam, range = 22) => Math.max(0, 1 - pos.distanceTo(cam.position) / range) ** 1.5;
 
-export function createStreetLife({ scene, camera, sound }) {
+export function createStreetLife({ scene, camera, sound, night = false }) {
   const tpl = {};
   for (const n of ["TPL_tuktuk", "TPL_car", "TPL_bird"]) {
     const o = scene.getObjectByName(n);
@@ -100,9 +129,46 @@ export function createStreetLife({ scene, camera, sound }) {
 
   // ---------------------------------------------------------------- vehicles
   const VEH = {
-    TPL_tuktuk: { speed: [3.2, 4.2], sound: "motorbike", rate: 1.7, vol: 0.55, horn: 1.35, driver: ["dog"] },
-    TPL_car: { speed: [4.5, 6.5], sound: "car", rate: 1, vol: 0.5, horn: 1, driver: ["cat", "cat2"] },
+    // lamps: the headlamps painted on each model, in its own frame (x forward, y up), measured in Blender:
+    // the tuk-tuk has one in the middle of its nose, the taxi two round ones either side of the grille
+    TPL_tuktuk: { speed: [3.2, 4.2], sound: "motorbike", rate: 1.7, vol: 0.55, horn: 1.35, driver: ["dog"], lamps: [[1.07, 0.975, 0]] },
+    TPL_car: { speed: [4.5, 6.5], sound: "car", rate: 1, vol: 0.5, horn: 1, driver: ["cat", "cat2"], lamps: [[1.9, 0.955, -0.69], [1.9, 0.955, 0.69]] },
   };
+  // headlights after dark: two glowing lamps on the front, and a beam on the road from a pool of spotlights made once
+  // (adding a light per car would recompile every shader as cars come and go)
+  const beams = [];
+  let glow = null;
+  if (night) {
+    const c = document.createElement("canvas");
+    c.width = c.height = 64;
+    const g = c.getContext("2d"), grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, "rgba(255,250,230,1)");
+    grad.addColorStop(0.25, "rgba(255,240,200,0.7)");
+    grad.addColorStop(1, "rgba(255,230,180,0)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    glow = new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), blending: THREE.AdditiveBlending, depthWrite: false });
+    for (let i = 0; i < 4; i++) { // enough for every car on the street at once
+      const l = new THREE.SpotLight(0xfff1d6, 0, 22, 0.45, 0.6, 1.2);
+      scene.add(l, l.target);
+      beams.push(l);
+    }
+  }
+  function headlights(o, spec) {
+    for (const [x, y, z] of spec.lamps) {
+      const s = new THREE.Sprite(glow);
+      s.position.set(x + 0.03, y, z); // just proud of the lamp, so the glow isn't half inside the body
+      s.scale.setScalar(0.45);
+      o.add(s);
+    }
+    const beam = beams.find((l) => !l.userData.car);
+    if (!beam) return null;
+    beam.userData.car = o;
+    beam.intensity = 40;
+    const [x, y] = spec.lamps[0];
+    beam.userData.at = new THREE.Vector3(x, y, 0); // between the lamps; follows the car in update()
+    return beam;
+  }
   function spawnVehicle() {
     const kind = pick(Object.keys(VEH).filter((k) => tpl[k]));
     if (!kind) return;
@@ -115,7 +181,8 @@ export function createStreetLife({ scene, camera, sound }) {
     const wheels = []; // cut out of the Meshy model by prep_meshy.py, origin on the axle
     o.traverse((c) => { if (/^wheel_/.test(c.name)) wheels.push({ c, r: new THREE.Box3().setFromObject(c).getSize(new THREE.Vector3()).y / 2 }); });
     const loop = sound.play(spec.sound, { loop: true, volume: 0, rate: spec.rate * rand(0.92, 1.08) });
-    actors.push({ type: "vehicle", o, dir, v: rand(...spec.speed), spec, loop, seed: rand(0, 9), wheels });
+    const beam = night ? headlights(o, spec) : null;
+    actors.push({ type: "vehicle", o, dir, v: rand(...spec.speed), spec, loop, seed: rand(0, 9), wheels, beam });
   }
 
   // ---------------------------------------------------------------- mynas: fly in, perch on a power line, fly off
@@ -159,6 +226,10 @@ export function createStreetLife({ scene, camera, sound }) {
         if (a.loop) a.loop.gain.gain.value = a.spec.vol * near(o.position, camera);
         o.visible = Math.abs(o.position.z - camera.position.z) > 2.2 || camera.position.z > 12; // never through the lens
         done = Math.abs(o.position.x) > 27;
+        if (a.beam) { // from the lamps, ahead and down onto the road
+          a.beam.position.copy(a.beam.userData.at).applyMatrix4(o.matrixWorld);
+          a.beam.target.position.set(a.beam.position.x + a.dir * 8, 0, a.beam.position.z);
+        }
       } else if (a.type === "bird") {
         if (a.state === "in" || a.state === "out") {
           const target = a.state === "in" ? a.perch : a.to;
@@ -183,6 +254,7 @@ export function createStreetLife({ scene, camera, sound }) {
       }
       if (done) {
         a.loop?.stop();
+        if (a.beam) { a.beam.intensity = 0; a.beam.userData.car = null; } // back to the pool
         scene.remove(o);
         actors.splice(i, 1);
       }

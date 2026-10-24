@@ -22,7 +22,14 @@ export const drinks = [
 export const cards = {
   about: {
     title: "Pongsakorn Naklang",
-    body: "Full-stack developer. I build for the web with Next.js and Node.js, and I work with AI tools every step of the way: this shop was modelled with Meshy and coded with Claude Code. Open to full-time roles.",
+    // the bubble says these one at a time, then one sign-off; the portfolio book prints them all as one paragraph
+    lines: [
+      "Hi, I'm Pongsakorn, but you can call me Bankza.",
+      "I'm a software developer who builds web apps and AI tools.",
+      "Lately I've been trying my hand at making games.",
+      "I'm open to full-time roles.",
+    ],
+    signoffs: ["Nice to see you!", "Have a good day!", "Thanks for stopping by!", "Enjoy your coffee!", "Come back soon!"],
   },
   skills: {
     title: "Menu",

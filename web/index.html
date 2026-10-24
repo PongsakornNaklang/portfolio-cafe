@@ -59,6 +59,7 @@
     #tour .bubble p { font-size: 14px; line-height: 1.45; }
     .bubble .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
     .bubble .acts .btn { margin: 0; border: 0; cursor: pointer; font: 600 14px "Anuphan", sans-serif; }
+    .bubble .acts .btn.egg { background: var(--sign); color: var(--ink); } /* easter eggs, like Dance */
     #seatbar { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px;
                padding: 8px 10px 8px 18px; border-radius: 999px; background: var(--paper); box-shadow: 0 6px 20px rgba(0,0,0,.2); z-index: 4;
                font-weight: 600; white-space: nowrap; }
@@ -75,6 +76,7 @@
     /* the portfolio book: a yellow hardcover lying open, two pages a spread (one on a phone); a page turns on the spine */
     #book { border: 0; padding: 0; background: none; overflow: visible; max-width: none; max-height: none;
             width: min(880px, calc(100vw - 24px), calc((100dvh - 120px) * 1.45)); }
+    .bubble p.talk { min-height: 3em; transition: opacity .25s; } /* your bubble: one sentence at a time */
     #book::backdrop { background: rgba(20,18,16,.55); }
     body:has(dialog[open]) #hint { opacity: 0 !important; } /* the walk hint would show through behind a dialog's buttons */
     #book .cover { background: #f2c81d; border-radius: 10px; padding: 12px; box-shadow: inset 0 0 0 2px #d9b10f, 0 30px 80px rgba(0,0,0,.45); }
@@ -133,8 +135,30 @@
     #board .spacer { flex: 1; }
     #board button.txt { font: 600 14px "Anuphan", sans-serif; border: 0; border-radius: 999px; padding: 7px 16px; cursor: pointer; background: #ece7dc; color: var(--ink); }
     #board button.done { background: var(--sign); }
-    #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #bfe3ff; font: 800 22px "Archivo", sans-serif;
-               font-stretch: 125%; transition: opacity .5s; }
+    /* loading: the shop's roll-up shutter, with the yellow sign showing progress; it rolls up when the shop is ready */
+    #loading { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px;
+               background: linear-gradient(#0000 calc(100% - 26px), #6f757c calc(100% - 26px) calc(100% - 22px), #9aa0a6 0),
+                 repeating-linear-gradient(#d3d7db 0 20px, #bfc4c9 20px 26px, #9da3a9 26px 28px);
+               transition: transform .9s cubic-bezier(.6,0,.3,1); }
+    #loading.up { transform: translateY(-100%); }
+    #loading::after { content: ""; position: absolute; bottom: 8px; left: 50%; width: 64px; height: 8px; margin-left: -32px;
+                      border-radius: 4px; background: #4a4f55; } /* the handle */
+    #loading .sign { display: grid; justify-items: center; gap: 12px; padding: 22px 34px 18px; background: var(--sign); color: var(--ink);
+                     border: 3px solid var(--ink); border-radius: 16px; box-shadow: 0 6px 0 var(--ink), 0 24px 50px rgba(0,0,0,.25);
+                     animation: sway 2.4s ease-in-out infinite alternate; transform-origin: 50% -40px; }
+    #loading h1 { margin: 0; font: 800 clamp(34px, 9vw, 52px)/1 "Archivo", sans-serif; font-stretch: 125%; letter-spacing: .02em; }
+    #loading .bar { width: min(240px, 60vw); height: 14px; border: 2.5px solid var(--ink); border-radius: 999px; background: var(--paper); overflow: hidden; }
+    #loading .bar i { display: block; height: 100%; width: 0; border-right: 2.5px solid var(--ink); background: repeating-linear-gradient(-45deg,
+                      #ff8418 0 8px, #ff9d3d 8px 16px); transition: width .25s; }
+    #loading small { font: 600 14px "Archivo", sans-serif; font-variant-numeric: tabular-nums; }
+    @keyframes sway { from { transform: rotate(-1.2deg); } to { transform: rotate(1.2deg); } }
+    @media (prefers-reduced-motion: reduce) { #loading .sign { animation: none; } #loading { transition: opacity .5s; } #loading.up { transform: none; opacity: 0; } }
+    /* checkers result: a big word that pops up in the middle of the screen, then fades */
+    #gameover { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 6; }
+    #gameover b { font: 800 clamp(44px, 11vw, 120px)/1 "Archivo", sans-serif; font-stretch: 125%; color: var(--sign); text-align: center;
+                  -webkit-text-stroke: 3px var(--ink); paint-order: stroke fill; text-shadow: 0 6px 0 var(--ink), 0 18px 40px rgba(0,0,0,.35); }
+    #gameover.lose b { color: #8fb6ff; }
+    #gameover.draw b { color: var(--paper); }
   </style>
   <script type="importmap">
     { "imports": {
@@ -180,7 +204,9 @@
       <button class="txt done" id="board-done">Stick it on the board</button>
     </div>
   </dialog>
-  <div id="loading">NAKANG</div>
-  <script type="module" src="main.js?v=28"></script>
+  <div id="loading" role="progressbar" aria-label="Loading the shop" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+    <div class="sign"><h1>NAKANG</h1><div class="bar"><i></i></div><small>Opening the shop… 0%</small></div>
+  </div>
+  <script type="module" src="main.js?v=113"></script>
 </body>
 </html>

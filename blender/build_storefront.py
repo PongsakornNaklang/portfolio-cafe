@@ -270,9 +270,11 @@ def smooth_weights(ob, repeat=6, factor=0.5):
                 ob.vertex_groups[k].remove([i])
 
 
-def retarget(src, tgt, name):
+def retarget(src, tgt, name, move_hips=False):
     """Copy an animation between two Mixamo-named skeletons whose rest poses differ: each bone gets the source's
-    world-space rotation change from its own rest, applied on top of the target's rest. Returns the new action."""
+    world-space rotation change from its own rest, applied on top of the target's rest. The hips rise and sink as in
+    the clip, measured from the source standing at rest and scaled to the target's height, so bent knees or a crouch
+    don't lift his feet off the floor; with move_hips they also move sideways (a dance's sway). Returns the new action."""
     from mathutils import Matrix
     act = src.animation_data.action
     f0, f1 = (int(x) for x in act.frame_range)
@@ -281,26 +283,43 @@ def retarget(src, tgt, name):
     tgt.animation_data.action = new
     names = [b.name for b in tgt.data.bones if src.pose.bones.get(b.name)]
     srest = {n: (src.matrix_world @ src.data.bones[n].matrix_local).to_quaternion() for n in names}
-    trest = {n: (tgt.matrix_world @ tgt.data.bones[n].matrix_local).to_quaternion() for n in names}
+    # Mixamo clips rest in a T-pose, the Meshy rig in an A-pose (arms ~55° lower): first turn each target bone onto
+    # the source bone's rest direction, or that gap stays in every frame and the arms go through the body
+    def rest_dir(arm, n):
+        b = arm.data.bones[n]
+        return arm.matrix_world.to_3x3() @ (b.tail_local - b.head_local)
+    trest = {n: rest_dir(tgt, n).rotation_difference(rest_dir(src, n))
+             @ (tgt.matrix_world @ tgt.data.bones[n].matrix_local).to_quaternion() for n in names}
     scene = bpy.context.scene
+    hips = "mixamorig:Hips"
+    h0 = src.matrix_world @ src.data.bones[hips].head_local  # standing, feet on the ground
+    ratio = (tgt.matrix_world @ tgt.data.bones[hips].head_local).z / h0.z
     for f in range(f0, f1 + 1, 2):
         scene.frame_set(f)
         for n in names:  # tgt.data.bones lists parents before children
             pb = tgt.pose.bones[n]
             tq = (src.matrix_world @ src.pose.bones[n].matrix).to_quaternion() @ srest[n].inverted() @ trest[n]
             mw = tgt.matrix_world @ pb.matrix
-            pb.matrix = tgt.matrix_world.inverted() @ (Matrix.Translation(mw.to_translation()) @ tq.to_matrix().to_4x4()
+            at = mw.to_translation()
+            if n == hips:
+                d = (src.matrix_world @ src.pose.bones[n].head - h0) * ratio
+                if not move_hips:
+                    d.x = d.y = 0
+                at = tgt.matrix_world @ tgt.data.bones[n].head_local + d
+            pb.matrix = tgt.matrix_world.inverted() @ (Matrix.Translation(at) @ tq.to_matrix().to_4x4()
                                                         @ Matrix.Diagonal(mw.to_scale()).to_4x4())
             bpy.context.view_layer.update()
             pb.keyframe_insert("rotation_quaternion" if pb.rotation_mode == "QUATERNION" else "rotation_euler", frame=f)
+            if n == hips:
+                pb.keyframe_insert("location", frame=f)
     tgt.animation_data.action = None
     return new
 
 
-def use_meshy_character(me, path, wave_src):
+def use_meshy_character(me, path, extra_clips):
     """The character from Meshy (meshy/biped: modelled from the brief, auto-rigged with Mixamo bone names, with its own
-    idle clips). The wave comes from the Mixamo Waving clip (mixamo/waving.fbx), retargeted onto this skeleton.
-    The page plays the NLA tracks 'idle' and 'wave'."""
+    idle clips). The other moves are Mixamo clips (extra_clips: name -> (fbx, move_hips)), retargeted onto this skeleton.
+    A clip named 'idle' replaces Meshy's. The page plays the NLA tracks 'idle', 'wave', 'walk', 'dance' and 'sit'."""
     for o in list(me.children_recursive):
         bpy.data.objects.remove(o)
     before = set(bpy.data.objects)
@@ -337,18 +356,20 @@ def use_meshy_character(me, path, wave_src):
     clips ={a.name.split("|")[-1]: a for a in bpy.data.actions if a not in acts_before}
     if arm.animation_data:
         arm.animation_data.action = None
-    # wave: retarget the Mixamo clip
+    # the Mixamo clips (Without Skin downloads): retarget each one
     tracks = {"idle": clips.get("Idle_3") or next(iter(clips.values()))}
-    if os.path.exists(wave_src):
+    for nm, (src_path, move_hips) in extra_clips.items():
+        if not os.path.exists(src_path):
+            continue
         b2 = set(bpy.data.objects)
         a2 = set(bpy.data.actions)
-        bpy.ops.import_scene.fbx(filepath=wave_src)
+        bpy.ops.import_scene.fbx(filepath=src_path)
         extra = [o for o in bpy.data.objects if o not in b2]
         src = next(o for o in extra if o.type == "ARMATURE")
-        tracks["wave"] = retarget(src, arm, "wave")
+        tracks[nm] = retarget(src, arm, nm, move_hips)
         for o in extra:
             bpy.data.objects.remove(o)
-        for a in set(bpy.data.actions) - a2 - {tracks["wave"]}:
+        for a in set(bpy.data.actions) - a2 - {tracks[nm]}:
             bpy.data.actions.remove(a)
     for a in clips.values():  # drop the clips the page doesn't use (walk, run, the other idle)
         if a is not tracks["idle"]:
@@ -362,7 +383,7 @@ def use_meshy_character(me, path, wave_src):
     # stand him behind the counter at the old character's size (Meshy delivers ~1.7 m)
     arm.parent = me
     arm.matrix_parent_inverse.identity()
-    arm.location = (0, 0, 0.18)
+    arm.location = (0, 0, 0.018)  # soles just on the ground (the clips bend his knees a touch)
     me.scale = (1.4, 1.4, 1.4)
     bpy.context.scene.frame_set(1)
 
@@ -817,7 +838,7 @@ def facade_image(name, w, h, look, paint=None, seed=0):
 def seven_eleven(name, loc):
     """A Bangkok 7-Eleven in a white shophouse (after a street photo): five lit sign panels, louvred windows upstairs,
     dark-framed glass shop front with ATMs, facing our shop across the road."""
-    g = empty(name, loc, rot=(0, 0, 180))  # built like the shop (front toward local -Y), then turned to face it
+    g = empty(name, loc, hotspot="chime", rot=(0, 0, 180))  # built like the shop (front toward local -Y), then turned to face it
     W = 7.2
     wall, frame = mat("se_wall", color="#f2f0ea"), mat("se_frame", color="#2a2a2c", rough=0.4, metal=0.4)
     box(f"{name}_upper", (W, 0.4, 5.2), (0, 0.2, 6.4), wall, parent=g, bevel=0.04)
@@ -1283,7 +1304,7 @@ def espresso_machine(name, loc):
 
 
 def cup_shelf(name, loc, w, h, rows=3):
-    """Open oak shelf of cafe ware: white cups on saucers, clear glasses, colourful mugs; warm LED strip under each shelf."""
+    """Open oak shelf of cafe ware: white cups on saucers, clear glasses, colourful mugs."""
     g = empty(name, loc)
     oak, t, d = mat("oak"), 0.03, 0.25
     step = (h - t) / rows
@@ -1307,8 +1328,6 @@ def cup_shelf(name, loc, w, h, rows=3):
                 cyl(f"{name}_glass_{j}", 0.036, gh, (x, 0, z + gh / 2), glass, parent=g)
             else:
                 mug(f"{name}_mug_{j}", (x, 0, z), colours[j % len(colours)], parent=g)
-        box(f"{name}_led_{i}", (w - 2 * t - 0.04, 0.015, 0.008), (0, -d / 2 + 0.02, (i + 1) * step - 0.006),
-            mat("led", color="#ffd9a0", emit=3.0), parent=g, bevel=0)
     return g
 
 
@@ -1527,6 +1546,17 @@ def chalkboard(name, loc, w, h, rot=(0, 0, 0)):
     return g
 
 
+def wall_lamp(name, loc):
+    """Round orange glass wall lamp (hotspot 'lamp': tap to switch on / off): a glowing disc with a dark centre knob and
+    a white cord down to the floor. On a wall facing -X; loc is the disc's centre on the wall."""
+    g = empty(name, loc, hotspot="lamp")
+    ball(f"{name}_disc", 0.22, (-0.055, 0, 0), mat("wall_lamp_glass", color="#ff8418", rough=0.35, emit=1.2), parent=g, scale=(0.25, 1, 1))
+    ball(f"{name}_knob", 0.035, (-0.11, 0, 0), mat("steel", rough=0.15, metal=1.0), parent=g, scale=(0.6, 1, 1))
+    drop = loc[2] - 0.2 - 0.2  # from under the disc to the floor
+    cyl(f"{name}_cord", 0.004, drop, (-0.01, 0, -0.2 - drop / 2), mat("white"), parent=g, segments=8)
+    return g
+
+
 def wall_clock(name, loc):
     """Round wall clock (hotspot 'clock'): red rim, pink face, green hands on pivots clock_hour / clock_minute, which the
     page turns to the visitor's real time. Faces -Y."""
@@ -1650,8 +1680,8 @@ def build_interior():
 
     # you, behind the counter (placeholder: refine by hand)
     # raised duckboard behind the counter, so your face shows through the window and you don't float
-    box("staff_platform", (2.35, 1.1, 0.55), (-1.675, 1.6, 0.475), mat("plywood"), bevel=0.02)  # inside the L; tall so your chest clears the street ledge (2.1 m)
-    me = empty("HOT_character", (-1.0, 1.45, 0.75), hotspot="about")
+    box("staff_platform", (2.35, 1.1, 0.45), (-1.675, 1.6, 0.425), mat("plywood"), bevel=0.02)  # inside the L; top at 0.65 so his knees stay below the counter (1.35 m)
+    me = empty("HOT_character", (-1.0, 1.45, 0.65), hotspot="about")
     me.scale = (1.15, 1.15, 1.15)  # ponytail: toy-scale up so you read from the street; counters sit at knee height inside
     # clay-figure style (ref: smooth matte people, dot eyes, tiny nose, small open mouth, real proportions).
     # Body = one skin skeleton; tee and jeans = slightly fatter skeletons over it; head = fused clay pieces.
@@ -1724,7 +1754,13 @@ def build_interior():
     meshy = os.path.join(root, "meshy", "biped", "nakang_biped.fbx")
     mixamo = os.path.join(root, "mixamo", "waving.fbx")
     if os.path.exists(meshy):
-        use_meshy_character(me, meshy, mixamo)
+        use_meshy_character(me, meshy, {  # name -> (Mixamo clip, move the hips too)
+            "idle": (os.path.join(root, "mixamo", "idle.fbx"), False),  # Breathing Idle: Meshy's own idle holds his arms back
+            "wave": (mixamo, False),
+            "walk": (os.path.join(root, "mixamo", "walk.fbx"), False),  # In Place: the page moves him
+            "dance": (os.path.join(root, "mixamo", "dance.fbx"), True),  # Wave Hip Hop Dance: crouches and bounces
+            "sit": (os.path.join(root, "mixamo", "sit.fbx"), True),  # Sitting Idle: on the stool across the checkers board
+        })
     elif os.path.exists(mixamo):
         use_mixamo_character(me, mixamo)
 
@@ -1750,14 +1786,15 @@ def build_interior():
     wall_clock("HOT_clock", (3.55, 4.28, 2.55))
 
     # --- right: plywood centre table with steel stools, vinyl wall, records, plants
-    plywood_table("center_table", (2.1, 2.65, 0.2), 1.8, 0.85)  # like the reference: birch ply, panel legs, steel stools
+    plywood_table("center_table", (2.1, 2.65, 0.2), 1.8, 0.85, h=0.82)  # like the reference: birch ply, panel legs, steel stools
     for i, (x, y) in enumerate(((1.6, 2.0), (2.6, 2.0), (1.6, 3.3), (2.6, 3.3))):
         steel_stool(f"stool_steel_{i}", (x, y, 0.2))
-    turntable("HOT_record", (1.55, 2.65, 0.94), label="sign", hotspot="music")  # click to play / stop the music
-    project_book("HOT_book", (2.2, 2.62, 0.94), rot=-12)  # the project book: tap to flip through
+    turntable("HOT_record", (1.55, 2.65, 1.02), label="sign", hotspot="music")  # click to play / stop the music
+    project_book("HOT_book", (2.2, 2.62, 1.02), rot=-12)  # the project book: tap to flip through
     bookshelf("bookshelf", (0.95, 4.1, 0.2), 0.9, 2.2, 0.35)
     vinyl_shelf("vinyl_shelf", (2.08, 4.125, 0.2))  # back wall next to the bookshelf: plywood cubbies of records
-    chalkboard("HOT_board", (4.9, 1.75, 1.3), 1.5, 1.0, rot=(0, 0, -90))  # right wall, first thing you pass inside the door
+    chalkboard("HOT_board", (4.9, 2.2, 1.3), 1.5, 1.0, rot=(0, 0, -90))  # right wall, first thing you pass inside the door
+    wall_lamp("HOT_wall_lamp", (4.9, 3.6, 2.45))  # right wall above the cat's corner, left of the board
     dracaena("dracaena", (0.1, 3.95, 0.2), 1.0)  # back wall, left of the bookshelf
     bird_of_paradise("bird_of_paradise", (3.15, 3.85, 0.2))  # back wall, between the record crates and the mid-century corner
     # mid-century corner (back right): round contract-base table tucked into the corner, two shell chairs on the open sides
