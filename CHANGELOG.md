@@ -12,6 +12,7 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 - A slurp when you sip, with a rattle on the last one.
 - Tap the vinyl shelf to pick a record: two lofi tracks (CC0, by omfgdude) or the shop's own tape.
 - A yellow project book on the centre table: tap it to flip through the projects, about and contact, page by page.
+- A ginger shop cat naps on a shell chair in the corner (a Meshy model, its raised stripes flattened into the fur). It breathes slowly; tap it to pet it and it purrs. That chair is no longer a seat, but you can sit next to it.
 - Tap a passing tuk-tuk or taxi: beep beep, then the dog barks or the cat meows. Tap a myna on the wire and the birds nearby fly off.
 - The character waves with a little "huh!" at the tour's "That's me" step and whenever he says hello.
 

@@ -9,7 +9,7 @@ const pick = (a) => a[Math.floor(Math.random() * a.length)];
 export function createSound() {
   let ctx = null, master = null, muted = false;
   const buffers = {};
-  const files = ["car", "motorbike", "dog", "cat", "cat2", "bird", "street", "huh"];
+  const files = ["car", "motorbike", "dog", "cat", "cat2", "bird", "street", "huh", "purr"];
   async function start() {
     if (ctx) return ctx.resume();
     ctx = new AudioContext();

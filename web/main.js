@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { cards, site, drinks } from "./content.js?v=15";
-import { createSound, createStreetLife } from "./life.js?v=16";
+import { createSound, createStreetLife } from "./life.js?v=17";
 
 // ---------------------------------------------------------------- time of day (visitor's clock; ?time=night to test)
 const PRESETS = {
@@ -216,7 +216,7 @@ const ndc = new THREE.Vector2();
 const tip = document.getElementById("tip");
 const LABEL = { about: "About me", skills: "Menu", hello: "Say hi", music: "Music on / off", guestbook: "Write on the board",
   contact: "Contact", clock: "What time is it?", lamp: "Light on / off", records: "Pick a record",
-  honk: "Beep beep!", bird: "Shoo!", book: "Flip through my projects" };
+  honk: "Beep beep!", bird: "Shoo!", book: "Flip through my projects", cat: "Pet the cat" };
 
 function hotspotAt(x, y) {
   ndc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
@@ -264,6 +264,7 @@ addEventListener("click", (e) => {
   if (key === "music") return toggleMusic(r);
   if (key === "records") return recordMenu(r);
   if (key === "door") return toggleDoor();
+  if (key === "cat") return petCat(r);
   if (key === "lamp") return toggleLamp(o);
   if (key === "guestbook") return openBoard();
   if (key === "book") return openBook();
@@ -392,6 +393,19 @@ function openBoard() {
     dlg.close();
   };
   dlg.showModal();
+}
+
+// ---------------------------------------------------------------- the shop cat asleep on the shell chair: it breathes; tap to pet it and it purrs
+const catBody = scene.getObjectByName("cat_body");
+let purr = null;
+function petCat(r) {
+  purr?.stop();
+  purr = sound.play("purr", { volume: 0.9 });
+  showBubble({ title: "Purrr…" }, r, 1600);
+}
+function animateCat(now) {
+  const k = Math.sin(now * 0.0017); // a slow breath, about one every 4 s
+  catBody.scale.set(1 + k * 0.012, 1 + k * 0.025, 1 + k * 0.012);
 }
 
 // ---------------------------------------------------------------- the project book on the centre table: one page at a time
@@ -556,7 +570,6 @@ for (const t of Object.values(drinkTpl)) t?.parent?.remove(t);
 // every seat in the shop (and the plastic chair outside), with the table its drink goes on
 const SEATS = [
   { seat: "mcm_chair_0", table: "mcm_table", face: [3.0, 0.5] }, // facing its table is nose to the wall: face the door
-  { seat: "mcm_chair_1", table: "mcm_table" },
   ...[0, 1, 2, 3].map((i) => ({ seat: `stool_steel_${i}`, table: "center_table" })),
   ...[-0.5, 0.5].map((dx) => ({ seat: "window_bench", table: "window_table", dx })),
   { seat: "monobloc", table: "cart_body" },
@@ -812,5 +825,6 @@ renderer.setAnimationLoop(() => {
   animateNotes(dt);
   life.update(dt, performance.now() / 1000);
   animateBounces(performance.now());
+  animateCat(performance.now());
   renderer.render(scene, camera);
 });

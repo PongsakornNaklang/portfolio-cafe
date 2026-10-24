@@ -1469,6 +1469,9 @@ def build_interior():
     contract_table("mcm_table", (cx, cy, 0.2))
     for i, a in enumerate((180, 270)):
         shell_chair(f"mcm_chair_{i}", (cx + 0.62 * cos(radians(a)), cy + 0.62 * sin(radians(a)), 0.2), rot=(0, 0, a - 90))
+    # the shop cat, asleep on the front shell chair (tap to pet it); the Meshy model sits under an empty that breathes
+    nap = empty("HOT_cat", (cx, cy - 0.62, 0.2 + 0.475), hotspot="cat", rot=(0, 0, -20))
+    meshy_template("cat_body", "cat", (0, 0, 0)).parent = nap
     snake_plant("snake_plant", (0.85, 0.7, 0.2))  # in the gap left by the shorter seating
 
     # window seating like the reference cafe: oak plank table along the glass + bench behind it
