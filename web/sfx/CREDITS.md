@@ -10,3 +10,4 @@ All sounds are CC0 (public domain) from OpenGameArt.org, trimmed and converted t
 | car.mp3 | [Car sound effects pack](https://opengameart.org/content/car-sound-effects-pack-low-quality) |
 | motorbike.mp3 (also the tuk-tuk, pitched up) | [Motor sound effect](https://opengameart.org/content/motor-sound-effect) |
 | street.mp3 | [High traffic road sounds](https://opengameart.org/content/high-traffic-road-sounds) |
+| huh.mp3 (the character's hello) | [huh](https://opengameart.org/content/huh) by TinyWorlds |

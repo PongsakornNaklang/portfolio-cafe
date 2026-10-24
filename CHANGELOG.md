@@ -4,6 +4,14 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+### Added
+- After ordering, pick any seat: the corner table, the stools at the middle table, the window bench, or the plastic chair outside.
+- While seated, drag (or swipe) to look around.
+- The character waves with a little "huh!" at the tour's "That's me" step and whenever he says hello.
+
+### Fixed
+- The tour camera frames each thing whole, instead of cutting off the character's head or the menu, and goes inside so plants and the menu stand no longer block the view.
+
 ## [1.1.0] - 2026-10-24
 
 ### Added

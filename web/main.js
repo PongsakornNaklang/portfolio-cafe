@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { cards, site, drinks } from "./content.js?v=10";
-import { createSound, createStreetLife } from "./life.js?v=10";
+import { cards, site, drinks } from "./content.js?v=11";
+import { createSound, createStreetLife } from "./life.js?v=11";
 
 // ---------------------------------------------------------------- time of day (visitor's clock; ?time=night to test)
 const PRESETS = {
@@ -150,7 +150,7 @@ function placeCamera() {
   let pos = inProgress > 0.001 ? inside.getPoint(inProgress) : walk.getPoint(progress);
   // the Blender shots are framed for 4:3; on a tall phone screen widen the view so the shop still fits across
   let fov = THREE.MathUtils.lerp(THREE.MathUtils.lerp(rig.cams.CAM_front.fov, rig.cams.CAM_close.fov, ease(progress)), 58, ease(inProgress));
-  if (director) { pos = director.pos; look.copy(director.look); fov = director.fov; }
+  if (director) { pos = director.pos; look.copy(director.base ? seatedLook() : director.look); fov = director.fov; }
   const k0 = camReady ? 0.07 : 1; // fly smoothly between shots
   camPos.lerp(pos, k0); camLook.lerp(look, k0); camFov += (fov - camFov) * k0;
   camReady = true;
@@ -164,11 +164,29 @@ function placeCamera() {
   hint.style.opacity = director || (t > 0.9 && !doorOpen) || u > 0.95 ? 0 : 1;
 }
 
-function shotOf(o, dist = 2.6) {
-  const c = new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3());
-  const pos = new THREE.Vector3(c.x * 0.75 + close.x * 0.25, c.y + 0.35, Math.max(c.z + dist, 2.4)); // stay outside the glass
-  // aim a little low so the object sits in the upper half, clear of the tour card at the bottom
-  return { pos, look: c.clone().add(new THREE.Vector3(0, -0.12 * pos.distanceTo(c), 0)), fov: 34 };
+// frame an object: far enough back that all of it fits with some room around it, seen from the street side and a
+// little above; if a wall or shelf is in the way, step in front of it
+const _ray = new THREE.Raycaster();
+function shotOf(o, { minY = -Infinity, from = [0.12, 0.22, 1] } = {}) {
+  const box = new THREE.Box3().setFromObject(o);
+  box.min.y = Math.max(box.min.y, minY); // e.g. only the part of the character above the counter
+  const c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
+  const fov = 34, half = Math.tan(THREE.MathUtils.degToRad(fov / 2));
+  const dist = Math.max(1.6, (Math.max(s.y, Math.max(s.x, s.z) / Math.max(camera.aspect, 4 / 3)) * 1.4) / 2 / half + 0.3);
+  const dir = new THREE.Vector3(...from).normalize();
+  const pos = c.clone().addScaledVector(dir, dist);
+  pos.y = THREE.MathUtils.clamp(pos.y, 1.2, 2.9); // eye height: never through the ceiling or the floor
+  _ray.set(c, pos.clone().sub(c).normalize());
+  _ray.far = c.distanceTo(pos);
+  for (const h of _ray.intersectObject(gltf.scene, true)) {
+    let mine = false;
+    for (let p = h.object; p && !mine; p = p.parent) mine = p === o;
+    if (mine || h.object.material?.transparent) continue;
+    pos.copy(c).addScaledVector(_ray.ray.direction, Math.max(0.6, h.distance - 0.25));
+    break;
+  }
+  const look = c.clone().setY(c.y - s.y * 0.08); // a touch low so the object sits just above the middle
+  return { pos, look, fov: Math.max(fov, THREE.MathUtils.radToDeg(2 * Math.atan((s.y * 1.3) / 2 / pos.distanceTo(c)))) };
 }
 function lockScroll(on) { document.documentElement.style.overflow = on ? "hidden" : ""; }
 
@@ -214,7 +232,7 @@ addEventListener("pointermove", (e) => {
   tip.style.opacity = o ? 1 : 0;
   if (o) {
     const k = o.userData.hotspot;
-    tip.textContent = k === "sip" ? "Take a sip" : k === "door" ? (doorOpen ? "Close the door" : "Open the door") : LABEL[k] || cards[k]?.title || k;
+    tip.textContent = k === "sip" ? "Take a sip" : k === "seat" ? "Sit here" : k === "door" ? (doorOpen ? "Close the door" : "Open the door") : LABEL[k] || cards[k]?.title || k;
     tip.style.left = e.clientX + "px";
     tip.style.top = e.clientY + "px";
   }
@@ -222,6 +240,7 @@ addEventListener("pointermove", (e) => {
 
 let bubble = null;
 addEventListener("click", (e) => {
+  if (gaze.moved) return; // that was a drag to look around
   if (bubble?.contains(e.target) || e.target.closest?.("#tour, #help, #board, #mute, #seatbar")) return;
   bubble?.remove();
   bubble = null;
@@ -229,6 +248,7 @@ addEventListener("click", (e) => {
   if (!o) return;
   const key = o.userData.hotspot;
   if (key === "sip") return sip();
+  if (key === "seat") return sitAt(o.userData.seat);
   feedback(o, !["hello", "skills", "door", "clock", "lamp", "guestbook"].includes(key)); // flat or hanging things: sound + buzz only
   tip.style.opacity = 0;
   const r = screenRect(o);
@@ -451,6 +471,7 @@ function wave() {
   if (waveAction.isRunning()) return;
   waveAction.reset().play();
   idleAction.crossFadeTo(waveAction, 0.35, false);
+  sound.play("huh", { volume: 0.8 }); // a wordless "huh!" hello
 }
 
 const headBone = scene.getObjectByName("mixamorigHead");
@@ -475,11 +496,40 @@ function animateCharacter(dt) {
   headBone.quaternion.premultiply(_pq.clone().invert().multiply(look).multiply(_pq));
 }
 
-// ---------------------------------------------------------------- order a drink, then sit at the corner table
-const table = scene.getObjectByName("mcm_table");
+// ---------------------------------------------------------------- order a drink, pick a seat, sit and look around
 const drinkTpl = Object.fromEntries(drinks.map((d) => [d.id, scene.getObjectByName(`TPL_drink_${d.id}`)]));
 for (const t of Object.values(drinkTpl)) t?.parent?.remove(t);
-let myDrink = null, seated = false;
+// every seat in the shop (and the plastic chair outside), with the table its drink goes on
+const SEATS = [
+  { seat: "mcm_chair_0", table: "mcm_table", face: [3.0, 0.5] }, // facing its table is nose to the wall: face the door
+  { seat: "mcm_chair_1", table: "mcm_table" },
+  ...[0, 1, 2, 3].map((i) => ({ seat: `stool_steel_${i}`, table: "center_table" })),
+  ...[-0.5, 0.5].map((dx) => ({ seat: "window_bench", table: "window_table", dx })),
+  { seat: "monobloc", table: "cart_body" },
+].map((s) => {
+  const sb = new THREE.Box3().setFromObject(scene.getObjectByName(s.seat));
+  const tb = new THREE.Box3().setFromObject(scene.getObjectByName(s.table));
+  const p = sb.getCenter(new THREE.Vector3()); p.x += s.dx || 0;
+  const floor = sb.min.y;
+  const tc = tb.getCenter(new THREE.Vector3());
+  // which way you face: the table, or a set direction where the table would put you nose to the wall
+  const dir = (s.face ? new THREE.Vector3(s.face[0] - p.x, 0, s.face[1] - p.z) : new THREE.Vector3(tc.x - p.x, 0, tc.z - p.z)).normalize();
+  // the drink: on the table where it's nearest the spot just in front of you, a little in from the rim
+  const front = p.clone().addScaledVector(dir, 0.4);
+  const spot = new THREE.Vector3(THREE.MathUtils.clamp(front.x, tb.min.x, tb.max.x), tb.max.y, THREE.MathUtils.clamp(front.z, tb.min.z, tb.max.z));
+  spot.add(new THREE.Vector3(tc.x - spot.x, 0, tc.z - spot.z).setLength(0.15));
+  return { p, floor, spot, dir };
+});
+const pinTex = (() => {
+  const cv = document.createElement("canvas"); cv.width = cv.height = 128;
+  const x = cv.getContext("2d");
+  x.fillStyle = "#ffd23f"; x.strokeStyle = "#fff"; x.lineWidth = 12;
+  x.beginPath(); x.arc(64, 64, 50, 0, Math.PI * 2); x.fill(); x.stroke();
+  x.fillStyle = "#2b2420"; x.font = "bold 60px sans-serif"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText("↓", 64, 68);
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+let pins = [];
+let myDrink = null, seated = false, picking = null;
 function drinkMenu(r) {
   bubble?.remove();
   showBubble({ title: "Menu", body: "What can I get you?",
@@ -489,29 +539,76 @@ function order(d) {
   bubble?.remove(); bubble = null;
   wave();
   const me = scene.getObjectByName("HOT_character");
-  showBubble({ title: `${d.name}, coming right up!`, body: "Take a seat at the corner table." }, screenRect(me), 1800);
-  setTimeout(() => sitDown(d), 1900);
+  showBubble({ title: `${d.name}, coming right up!`, body: "Sit anywhere you like." }, screenRect(me), 1800);
+  setTimeout(() => pickSeat(d), 1900);
 }
-function sitDown(d) {
-  const top = new THREE.Box3().setFromObject(table);
-  const c = top.getCenter(new THREE.Vector3());
+// step back so the whole room shows, and float a pin over every seat: tap one to sit there
+function pickSeat(d) {
+  clearPins();
+  picking = d;
+  lockScroll(true);
+  director = { pos: new THREE.Vector3(3.3, 4.6, 4.4), look: new THREE.Vector3(3.4, 0.2, -1.4), fov: 52 };
+  pins = SEATS.map((s, i) => {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: pinTex, transparent: true, depthTest: false, sizeAttenuation: false }));
+    sp.position.set(s.p.x, s.floor + 0.9, s.p.z);
+    sp.scale.setScalar(0.055); // a fixed size on screen, easy to tap
+    sp.renderOrder = 10;
+    sp.userData = { hotspot: "seat", seat: i };
+    gltf.scene.add(sp); // inside gltf.scene so taps find it
+    return sp;
+  });
+  showSeatBar("Pick a seat", "Tap a yellow pin", "Cancel");
+}
+function clearPins() { for (const p of pins) p.parent?.remove(p); pins = []; }
+function sitAt(i) {
+  const d = picking, s = SEATS[i];
+  picking = null;
+  clearPins();
   myDrink?.parent?.remove(myDrink);
   myDrink = drinkTpl[d.id].clone(true);
-  myDrink.position.set(c.x - 0.15, top.max.y, c.z + 0.05);
+  myDrink.position.copy(s.spot);
   myDrink.userData.hotspot = "sip";
   myDrink.userData.level = 1;
-  gltf.scene.add(myDrink); // inside gltf.scene so taps find it
+  gltf.scene.add(myDrink);
   seated = true;
-  lockScroll(true);
-  // sitting on the chair by the bookshelf: your drink in front, the room and the street window beyond
-  director = { pos: new THREE.Vector3(c.x - 0.8, 1.35, c.z - 0.05), look: new THREE.Vector3(c.x - 0.1, 0.9, c.z + 0.9), fov: 58 };
-  showSeatBar(d);
+  // eyes above the seat, a little back from the table, looking over your drink and on into the room
+  const pos = new THREE.Vector3(s.p.x, s.floor + 1.2, s.p.z).addScaledVector(s.dir, -0.12);
+  const ahead = pos.clone().addScaledVector(s.dir, 1.6).setY(s.floor + 0.5); // tipped down enough to see your drink
+  gaze.yaw = gaze.pitch = 0;
+  renderer.domElement.style.touchAction = "none"; // a finger drag turns your head instead of scrolling
+  director = { pos, look: ahead, base: ahead.clone().sub(pos), fov: 66 };
+  showSeatBar(`${d.emoji} ${d.name}`, "Tap your drink to sip · drag to look around", "Back to the street");
 }
-function showSeatBar(d) {
+function showSeatBar(title, hint, leave) {
   const bar = document.getElementById("seatbar");
   bar.hidden = false;
-  document.getElementById("seat-title").textContent = `${d.emoji} ${d.name}`;
-  document.getElementById("seat-leave").onclick = (e) => { e.stopPropagation(); standUp(); };
+  document.getElementById("seat-title").textContent = title;
+  document.getElementById("seat-hint").textContent = hint;
+  const btn = document.getElementById("seat-leave");
+  btn.textContent = leave;
+  btn.onclick = (e) => { e.stopPropagation(); standUp(); };
+}
+// drag to look around while seated (mouse or finger); a drag doesn't count as a tap
+const gaze = { yaw: 0, pitch: 0, drag: null, moved: false };
+const _up = new THREE.Vector3(0, 1, 0), _side = new THREE.Vector3();
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  gaze.moved = false;
+  if (seated) gaze.drag = { x: e.clientX, y: e.clientY };
+});
+addEventListener("pointermove", (e) => {
+  if (!gaze.drag) return;
+  const dx = e.clientX - gaze.drag.x, dy = e.clientY - gaze.drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 4) gaze.moved = true;
+  gaze.yaw = THREE.MathUtils.clamp(gaze.yaw + dx * 0.004, -2.4, 2.4);
+  gaze.pitch = THREE.MathUtils.clamp(gaze.pitch + dy * 0.003, -0.6, 0.7);
+  gaze.drag = { x: e.clientX, y: e.clientY };
+});
+addEventListener("pointerup", () => { gaze.drag = null; });
+function seatedLook() { // called by placeCamera: the seated view turned by the drag
+  const d = director.base.clone().applyAxisAngle(_up, gaze.yaw);
+  _side.crossVectors(d, _up).normalize();
+  d.applyAxisAngle(_side, gaze.pitch);
+  return director.pos.clone().add(d);
 }
 function sip() {
   if (!myDrink) return;
@@ -522,6 +619,9 @@ function sip() {
 }
 function standUp() {
   seated = false;
+  picking = null;
+  clearPins();
+  renderer.domElement.style.touchAction = "";
   director = null;
   lockScroll(false);
   document.getElementById("seatbar").hidden = true;
@@ -572,14 +672,14 @@ muteBtn.onclick = (e) => { e.stopPropagation(); sound.start(); muteBtn.textConte
 const TOUR = [
   { title: "Welcome to NAKANG", body: "A little shop for my work. I'll show you what you can tap — or scroll anytime to walk around on your own.", shot: () => ({ pos: close.clone(), look: shopFront.clone().setY(1.9), fov: rig.cams.CAM_close.fov }) },
   { obj: "HOT_project_iport", title: "Projects", body: "Everything I've built sits in this case. Tap one to read about it and open it." },
-  { obj: "HOT_character", title: "That's me", body: "Tap to say hi, read about me, or order a drink and sit down for a bit." },
-  { obj: "HOT_menu", title: "The menu", body: "My skills and tools, listed like a coffee menu." },
+  { obj: "HOT_character", frame: { minY: 1.25 }, title: "That's me", body: "Tap to say hi, read about me, or order a drink and sit down for a bit." },
+  { obj: "HOT_menu", frame: { minY: 1.35 }, title: "The menu", body: "My skills and tools, listed like a coffee menu." },
   { obj: "HOT_record", title: "Music", body: "Tap the record player to put some lofi on." },
   { obj: "HOT_board", title: "Guestbook", body: "Leave a note — draw anything on the blue board.",
     shot: () => ({ pos: new THREE.Vector3(2.4, 1.75, -1.75), look: new THREE.Vector3(4.9, 1.45, -1.75), fov: 40 }) },
   { obj: "HOT_clock", title: "Clock", body: "Shows your time. The shop lights follow it too." },
-  { obj: "HOT_lamp_0", title: "Lamps", body: "Tap a lamp to switch it on or off." },
-  { obj: "HOT_door", title: "The door", body: "Tap to open it, then keep scrolling to walk inside." },
+  { obj: "HOT_lamp_1", title: "Lamps", body: "Tap a lamp to switch it on or off." },
+  { obj: "HOT_door", frame: { from: [-0.45, 0.15, 1] }, title: "The door", body: "Tap to open it, then keep scrolling to walk inside." },
   { obj: "HOT_mailbox", title: "Say hello", body: "The mailbox has my contact details." },
 ];
 function startTour(force = false) {
@@ -597,8 +697,9 @@ function startTour(force = false) {
     document.getElementById("tour-body").textContent = s.body;
     next.textContent = i === TOUR.length - 1 ? "Let's go" : "Next";
     back.hidden = i === 0;
-    director = s.shot ? s.shot() : shotOf(scene.getObjectByName(s.obj), s.obj === "HOT_mailbox" ? 3.2 : 2.6);
+    director = s.shot ? s.shot() : shotOf(scene.getObjectByName(s.obj), s.frame);
     if (s.obj) feedback(scene.getObjectByName(s.obj), false);
+    if (s.obj === "HOT_character") wave();
     const b = tour.querySelector(".bubble");
     b.style.animation = "none"; b.offsetWidth; b.style.animation = "";
   };
