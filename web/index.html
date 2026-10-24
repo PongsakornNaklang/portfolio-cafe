@@ -72,28 +72,54 @@
     @media (max-width: 600px) { #hint { bottom: 72px; } }
     @media (max-width: 600px) { #seatbar { bottom: 72px; flex-wrap: wrap; justify-content: center; width: max-content; max-width: calc(100vw - 32px);
                                            border-radius: 22px; padding: 8px 10px; gap: 8px; } }
-    /* the project book: a yellow hardcover, one page at a time */
-    #book { border: 0; border-radius: 6px 18px 18px 6px; padding: 26px 26px 16px 34px; width: min(440px, calc(100vw - 32px)); background: var(--paper);
-            box-shadow: inset 12px 0 0 #f2c81d, inset 14px 0 0 #d9b10f, 0 20px 60px rgba(0,0,0,.35); overflow: hidden; }
-    #book::backdrop { background: rgba(20,18,16,.45); }
-    #book .page { min-height: 210px; transform-origin: 0 50%; }
-    #book .page.flip { animation: turn .35s ease-out; }
-    #book .page.flip-back { animation: turn-back .35s ease-out; transform-origin: 100% 50%; }
-    @keyframes turn { from { transform: perspective(900px) rotateY(-60deg); opacity: 0; } }
-    @keyframes turn-back { from { transform: perspective(900px) rotateY(60deg); opacity: 0; } }
-    @media (prefers-reduced-motion: reduce) { #book .page.flip, #book .page.flip-back { animation: none; } }
-    #book .kicker { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #7a7266; margin-bottom: 6px; }
-    #book h2 { margin: 0 0 8px; font: 800 26px/1.1 "Archivo", sans-serif; font-stretch: 125%; }
-    #book p { margin: 0 0 4px; }
-    #book table { width: 100%; border-collapse: collapse; margin-top: 4px; }
-    #book td { padding: 5px 0; border-bottom: 1px dashed #d9d3c4; }
+    /* the portfolio book: a yellow hardcover lying open, two pages a spread (one on a phone); a page turns on the spine */
+    #book { border: 0; padding: 0; background: none; overflow: visible; max-width: none; max-height: none;
+            width: min(880px, calc(100vw - 24px), calc((100dvh - 120px) * 1.45)); }
+    #book::backdrop { background: rgba(20,18,16,.55); }
+    body:has(dialog[open]) #hint { opacity: 0 !important; } /* the walk hint would show through behind a dialog's buttons */
+    #book .cover { background: #f2c81d; border-radius: 10px; padding: 12px; box-shadow: inset 0 0 0 2px #d9b10f, 0 30px 80px rgba(0,0,0,.45); }
+    #book .spread { position: relative; display: grid; grid-template-columns: 1fr 1fr; aspect-ratio: 1.45; perspective: 2400px;
+                    box-shadow: 0 2px 0 #ece4d2, 0 4px 0 #ddd3bc, 0 6px 0 #e9e1cf; border-radius: 3px; cursor: pointer; }
+    #book .spread.one { grid-template-columns: 1fr; aspect-ratio: auto; height: min(600px, calc(100dvh - 140px)); }
+    #book .spread.one #pg-l { display: none; }
+    #book .pg { position: relative; overflow: hidden auto; container-type: inline-size; padding: 26px 30px 36px; color: var(--ink);
+                background-color: #fbf7ee; background-image: radial-gradient(#e6dfcd 1px, transparent 1.3px); background-size: 18px 18px; }
+    /* the gutter: pages darken toward the spine */
+    #book .pg.left { box-shadow: inset -26px 0 26px -18px rgba(60,40,10,.28); border-radius: 3px 0 0 3px; }
+    #book .pg.right { box-shadow: inset 26px 0 26px -18px rgba(60,40,10,.28); border-radius: 0 3px 3px 0; }
+    #book .spread.one .pg.right { box-shadow: inset 14px 0 18px -14px rgba(60,40,10,.3); border-radius: 0 3px 3px 0; }
+    #book .pg.endpaper { background-color: #e9b80f; background-size: 24px 24px;
+                         background-image: repeating-linear-gradient(0deg, rgba(43,36,32,.12) 0 5px, transparent 5px 24px),
+                                           repeating-linear-gradient(90deg, rgba(43,36,32,.12) 0 5px, transparent 5px 24px); }
+    #book .pg.title { background: #f2c81d; display: flex; flex-direction: column; justify-content: flex-end; }
+    #book .title small { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+    #book .title h1 { margin: 6px 0 4px; font: 800 12cqi/.95 "Archivo", sans-serif; font-stretch: 125%; }
+    #book .title p { margin: 0 0 18px; }
+    #book .title .hint { font-size: 13px; opacity: .7; }
+    /* the turning leaf: two faces back to back, hinged on the spine */
+    #book .leaf { position: absolute; top: 0; bottom: 0; width: 50%; transform-style: preserve-3d; z-index: 2; pointer-events: none; }
+    #book .leaf.on-right { left: 50%; transform-origin: 0 50%; }
+    #book .leaf.on-left { left: 0; transform-origin: 100% 50%; }
+    #book .spread.one .leaf { left: 0; width: 100%; transform-origin: 0 50%; }
+    #book .leaf .pg { position: absolute; inset: 0; backface-visibility: hidden; overflow: hidden; }
+    #book .leaf .back { transform: rotateY(180deg); }
+    #book .kicker { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: #7a7266; margin-bottom: 6px; }
+    #book h2 { margin: 0 0 10px; font: 800 28px/1.05 "Archivo", sans-serif; font-stretch: 125%; }
+    #book p { margin: 0 0 6px; line-height: 1.5; }
+    #book table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+    #book td { padding: 4px 0; border-bottom: 1px dashed #d9d3c4; font-size: 14px; line-height: 1.3; }
     #book td + td { text-align: right; color: #7a7266; }
-    #book a.btn { display: inline-block; margin-top: 12px; padding: 7px 16px; border-radius: 999px; background: var(--sign); color: var(--ink); font-weight: 600; text-decoration: none; }
-    #book .tools { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; padding-top: 12px; border-top: 1px dashed #d9d3c4; }
-    #book .tools button { font: 600 14px "Anuphan", sans-serif; border: 0; border-radius: 999px; padding: 7px 16px; cursor: pointer; background: #ece7dc; color: var(--ink); }
-    #book .tools button:disabled { opacity: .35; cursor: default; }
-    #book #book-num { font-size: 13px; color: #7a7266; }
-    #book .x { position: absolute; top: 8px; right: 12px; border: 0; background: none; font-size: 22px; line-height: 1; cursor: pointer; color: #7a7266; }
+    #book a.btn { display: inline-block; margin-top: 14px; padding: 7px 16px; border-radius: 999px; background: var(--sign); color: var(--ink); font-weight: 600; text-decoration: none; }
+    #book .folio { position: absolute; bottom: 12px; left: 0; right: 0; text-align: center; font-size: 12px; color: #a39a8a; }
+    #book ol.toc { list-style: none; padding: 0; margin: 8px 0 0; }
+    #book .toc button { display: flex; width: 100%; align-items: baseline; gap: 6px; padding: 7px 0; border: 0; background: none; font: 500 16px "Anuphan", sans-serif; color: var(--ink); cursor: pointer; text-align: left; }
+    #book .toc button:hover span { text-decoration: underline; }
+    #book .toc i { flex: 1; border-bottom: 2px dotted #cfc6b2; }
+    #book .tools { display: flex; justify-content: center; gap: 10px; margin-top: 14px; }
+    #book .tools button { font: 600 14px "Anuphan", sans-serif; border: 0; border-radius: 999px; padding: 8px 18px; cursor: pointer; background: #fffdf7; color: var(--ink); }
+    #book .tools button:disabled { opacity: .4; cursor: default; }
+    #book .x { position: absolute; top: -40px; right: 0; width: 34px; height: 34px; border: 0; border-radius: 50%; background: #fffdf7; font-size: 20px; line-height: 1; cursor: pointer; color: var(--ink); }
+    @media (max-width: 720px) { #book .pg { padding: 22px 22px 34px; } #book h2 { font-size: 24px; } }
     /* guestbook drawing window */
     #board { border: 0; border-radius: 20px; padding: 16px; background: var(--paper); width: min(760px, calc(100vw - 32px), calc((100dvh - 210px) * 1.5 + 44px)); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
     #board::backdrop { background: rgba(20,18,16,.45); }
@@ -133,10 +159,10 @@
       <div class="row"><button class="skip" id="tour-skip">Skip</button><span><button class="skip" id="tour-back" hidden>Back</button> <button class="next" id="tour-next">Next</button></span></div>
     </div>
   </div>
-  <dialog id="book" aria-label="Project book">
+  <dialog id="book" aria-label="Portfolio">
     <button class="x" id="book-close" aria-label="Close">×</button>
-    <div class="page" id="book-page"></div>
-    <div class="tools"><button id="book-prev">← Back</button><span id="book-num"></span><button id="book-next">Next →</button></div>
+    <div class="cover"><div class="spread" id="book-spread"><div class="pg left" id="pg-l"></div><div class="pg right" id="pg-r"></div></div></div>
+    <div class="tools"><button id="book-prev">← Back</button><button id="book-next">Next →</button></div>
   </dialog>
   <dialog id="board" aria-labelledby="board-title">
     <h2 id="board-title">Leave a note</h2>
@@ -155,6 +181,6 @@
     </div>
   </dialog>
   <div id="loading">NAKANG</div>
-  <script type="module" src="main.js?v=23"></script>
+  <script type="module" src="main.js?v=28"></script>
 </body>
 </html>

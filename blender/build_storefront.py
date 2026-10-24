@@ -513,7 +513,7 @@ def empty(name, loc, parent=None, hotspot=None, rot=(0, 0, 0)):
     return obj
 
 
-def text(name, body, size, loc, material, parent=None, extrude=0.02, fonts=(), rot=(90, 0, 0), align="LEFT"):
+def text(name, body, size, loc, material, parent=None, extrude=0.02, fonts=(), rot=(90, 0, 0), align="LEFT", bevel=0.004):
     cu = bpy.data.curves.new(name, type="FONT")
     for path in fonts:
         try:
@@ -524,7 +524,7 @@ def text(name, body, size, loc, material, parent=None, extrude=0.02, fonts=(), r
     cu.body = body
     cu.size = size
     cu.extrude = extrude
-    cu.bevel_depth = 0.004
+    cu.bevel_depth = bevel  # small lettering needs less, or the letters swell into one blob
     cu.align_x = align
     cu.align_y = "CENTER"
     obj = bpy.data.objects.new(name, cu)
@@ -534,6 +534,37 @@ def text(name, body, size, loc, material, parent=None, extrude=0.02, fonts=(), r
 
 
 # ---------------------------------------------------------------- street
+
+def brick_image(name, tones, joint="#cfc3b6", seed=5):
+    """Facade brick (1.2 m tile): 5 x 16 bricks of 24 x 7.5 cm in running bond, light mortar joints."""
+    rnd = random.Random(seed)
+    tones, joint = [rgb(c) for c in tones], rgb(joint)
+    cols, rows, bw, bh = 5, 16, 96, 30
+    pick = [[rnd.choice(tones) for _ in range(cols + 1)] for _ in range(rows)]
+
+    def pixel(x, y):
+        r = y // bh
+        xo = (x + (bw // 2 if r % 2 else 0)) % (cols * bw)
+        if y % bh < 3 or xo % bw < 3:
+            return joint
+        k = 0.95 + 0.1 * ((x * 7 + y * 13) % 7) / 7
+        return tuple(min(1.0, v * k) for v in pick[r][xo // bw])
+    return make_image(name, cols * bw, rows * bh, pixel)
+
+
+def tile_image(name, cols, rows, tones, joint, cell=40, seed=9):
+    """Stack-bond wall tiles (1.2 m tile): cols x rows tiles in a straight grid."""
+    rnd = random.Random(seed)
+    tones, joint = [rgb(c) for c in tones], rgb(joint)
+    cw, ch = cell * 12 // cols, cell * 12 // rows
+    pick = [[rnd.choice(tones) for _ in range(cols)] for _ in range(rows)]
+    return make_image(name, cols * cw, rows * ch,
+                      lambda x, y: joint if x % cw < 2 or y % ch < 2 else pick[y // ch][x // cw])
+
+
+RED_BRICK = ("#a5513b", "#b45c43", "#9a4a36", "#ad6248", "#8f4532", "#b86a50")
+DARK_BRICK = ("#6e4a3e", "#5c3d33", "#7a5446", "#4f3a33", "#664237")
+
 
 def paver_image(px=256, seed=31):
     """Brick pavers (1.6 m tile): 16 x 32 bricks in running bond, mixed warm greys and dusty rose, light joints."""
@@ -569,9 +600,23 @@ def build_street():
         col = "curb_red" if i % 2 else "curb_white"
         box(f"kerb_{i}", (0.48, 0.18, 0.16), (x, -3.12, 0.08), mat(col), bevel=0.02)
 
-    # neighbours: plain pastel shophouses, one with a roll-up shutter
-    box("neighbour_left", (6, 0.4, 9), (-7.5, 0.2, 4.65), mat("pink"), bevel=0.04)
-    box("neighbour_right", (6, 0.4, 9), (7.5 + EXTRA_W, 0.2, 4.65), mat("mint"), bevel=0.04)
+    # neighbours. Left: cream stone tiles below, a dark band, small white tiles above.
+    # Right: red brick shop floor with a roll-up shutter, darker brick upstairs with gas tanks on the ledge.
+    dark_win = mat("window_dark", color="#3b4652", rough=0.2)
+    stone = image_mat("stone_tiles", tile_image("stone_tiles", 2, 3, ("#d8d0bf", "#dcd4c4", "#d3cab8", "#ddd6c8"), "#bdb4a3"), rough=0.7, box_scale=1 / 1.2)
+    mosaic = image_mat("white_tiles", tile_image("white_tiles", 12, 12, ("#f4f4f2", "#efefec", "#f7f7f5"), "#c9c9c6", cell=20), rough=0.4, box_scale=1 / 1.2)
+    box("neighbour_left", (6, 0.4, 4.0), (-7.5, 0.2, 2.15), stone, bevel=0.02)
+    box("neighbour_left_door", (1.8, 0.06, 2.7), (-8.6, -0.01, 1.5), dark_win, bevel=0.02)
+    box("neighbour_left_band", (6.05, 0.55, 0.35), (-7.5, 0.12, 4.3), mat("coping", color="#2f3133", rough=0.5, metal=0.3), bevel=0.02)
+    box("neighbour_left_upper", (6, 0.4, 4.68), (-7.5, 0.2, 6.81), mosaic, bevel=0.02)
+    brick, dark_brick = image_mat("red_brick", brick_image("red_brick", RED_BRICK), rough=0.85, box_scale=1 / 1.2), image_mat("dark_brick", brick_image("dark_brick", DARK_BRICK, "#a99a8e", seed=6), rough=0.85, box_scale=1 / 1.2)
+    box("neighbour_right", (6, 0.4, 3.9), (7.5 + EXTRA_W, 0.2, 2.1), brick, bevel=0.02)
+    box("neighbour_right_ledge", (6, 0.55, 0.12), (7.5 + EXTRA_W, -0.05, 4.1), mat("concrete", rough=0.85), bevel=0.02)
+    box("neighbour_right_upper", (6, 0.4, 5.1), (7.5 + EXTRA_W, 0.2, 6.6), dark_brick, bevel=0.02)
+    for k, (dx, z, w, h) in enumerate(((-1.7, 6.0, 1.9, 1.5), (0.0, 6.3, 0.6, 0.6), (1.6, 6.0, 2.2, 1.5))):
+        box(f"neighbour_right_win_{k}", (w, 0.06, h), (7.5 + EXTRA_W + dx, -0.01, z), dark_win, bevel=0.02)
+    for k in range(2):
+        cyl(f"gas_tank_{k}", 0.16, 0.55, (8.0 + EXTRA_W + k * 0.4, -0.15, 4.44), mat("white", rough=0.4))
     box("shutter", (3.2, 0.08, 2.7), (7.5 + EXTRA_W, -0.02, 1.5), mat("shutter", rough=0.5, metal=0.3), bevel=0.02)
     for i in range(18):
         box(f"shutter_rib_{i}", (3.2, 0.03, 0.03), (7.5 + EXTRA_W, -0.07, 0.25 + i * 0.145), mat("concrete_dark"), bevel=0.01)
@@ -581,6 +626,255 @@ def build_street():
     thai_mailbox("HOT_mailbox", (-4.3, -0.95, 0.15))
     monobloc_chair("monobloc", (6.1, -1.45, 0.15), "stool_blue", rot=-15)  # right of the cart
     meatball_cart("cart", (5.0, -1.75, 0.15))
+
+    # across the road: a far kerb and pavement, a 7-Eleven in a shophouse, plain shophouses either side
+    box("far_sidewalk", (40, 3.0, 0.15), (0, -16.7, 0.075), mat("far_pavement", color="#cfcac1", rough=0.85), bevel=0.02)
+    for i in range(80):
+        box(f"far_kerb_{i}", (0.48, 0.18, 0.16), (-20 + 0.25 + i * 0.5, -15.28, 0.08), mat("curb_red" if i % 2 else "curb_white"), bevel=0.02)
+    seven_eleven("seven_eleven", (3.4, -18.2, 0.15))
+    # the rest of the row, both sides, out to the ends of the road: (centre x, width, look, height, paint)
+    for k, (x, w, look, h, col) in enumerate(((-12.85, 4.7, "paint", 8.2, "#f3d6c8"), (-17.6, 4.8, "brick", 9.4, None),
+                                              (14.15, 3.7, "tile", 8.6, None), (18.05, 4.1, "paint", 9.8, "#d5e6d0"))):
+        shophouse(f"row_{k}", (x, 0, 0.15), w, look, h, col)
+    for k, (x, w, look, h, col) in enumerate(((-3.5, 6.2, "paint", 9.0, "#d2e8f7"), (-8.85, 4.5, "brick", 8.6, None),
+                                              (-13.35, 4.5, "tile", 9.6, None), (-17.85, 4.5, "paint", 8.2, "#f6e2c4"),
+                                              (10.3, 6.2, "paint", 9.0, "#ffe7b0"), (15.05, 3.3, "brick", 9.8, None), (18.35, 3.3, "tile", 8.4, None))):
+        shophouse(f"far_row_{k}", (x, -18.2, 0.15), w, look, h, col, rot=180)
+
+
+def shophouse(name, loc, w, look, h=9.0, paint=None, rot=0):
+    """A shophouse w wide and h tall: one box whose front is a painted image (see facade_image), plus the ledge
+    between floors in 3D. Front toward local -Y; rot=180 faces our shop from across the road."""
+    g = empty(name, loc, rot=(0, 0, rot))
+    face = image_mat(f"{name}_face", facade_image(f"{name}_face", w, h, look, paint, seed=sum(map(ord, name))), rough=0.8)
+    box(f"{name}_front", (w, 0.4, h), (0, 0.2, h / 2), face, parent=g, bevel=0.02, uv_fit="xz")
+    box(f"{name}_band", (w, 0.55, 0.14), (0, 0.05, 3.97), mat("coping", color="#2f3133", rough=0.5, metal=0.3) if look == "tile" else mat("concrete", rough=0.85), parent=g, bevel=0.02)
+    return g
+
+
+SHOP_WORDS = ["NOODLE", "PHARMACY", "GOLD", "LAUNDRY", "MOBILE", "SALON", "BAKERY", "MASSAGE", "PRINT", "TAILOR", "KEYS", "COFFEE", "FRUIT"]
+PIXEL_FONT = {ch: rows.split(",") for ch, rows in {
+    "A": "01110,10001,10001,11111,10001,10001,10001", "B": "11110,10001,10001,11110,10001,10001,11110",
+    "C": "01111,10000,10000,10000,10000,10000,01111", "D": "11110,10001,10001,10001,10001,10001,11110",
+    "E": "11111,10000,10000,11110,10000,10000,11111", "F": "11111,10000,10000,11110,10000,10000,10000",
+    "G": "01111,10000,10000,10011,10001,10001,01111", "H": "10001,10001,10001,11111,10001,10001,10001",
+    "I": "11111,00100,00100,00100,00100,00100,11111", "K": "10001,10010,10100,11000,10100,10010,10001",
+    "L": "10000,10000,10000,10000,10000,10000,11111", "M": "10001,11011,10101,10101,10001,10001,10001",
+    "N": "10001,11001,10101,10011,10001,10001,10001", "O": "01110,10001,10001,10001,10001,10001,01110",
+    "P": "11110,10001,10001,11110,10000,10000,10000", "R": "11110,10001,10001,11110,10100,10010,10001",
+    "S": "01111,10000,10000,01110,00001,00001,11110", "T": "11111,00100,00100,00100,00100,00100,00100",
+    "U": "10001,10001,10001,10001,10001,10001,01110", "Y": "10001,10001,01010,00100,00100,00100,00100",
+}.items()}
+
+
+def facade_image(name, w, h, look, paint=None, seed=0):
+    """Paint a shophouse front, 64 px per metre: brick / tile / painted wall, a shop floor (shutter or glass) under a
+    lettered sign, windows upstairs with curtains, blinds or grilles, air-con boxes, plants, rain streaks, grime."""
+    import numpy as np
+    if name in bpy.data.images:
+        return bpy.data.images[name]
+    P, rnd = 64, random.Random(seed)
+    rng = np.random.default_rng(seed)
+    W, H = int(w * P), int(h * P)
+    yy, xx = np.mgrid[0:H, 0:W]  # row 0 = the bottom of the wall
+    a = np.zeros((H, W, 3), np.float32)
+    C = lambda hexcol: np.array(rgb(hexcol), np.float32)
+
+    def rect(x0, z0, x1, z1, col, alpha=1.0):
+        sl = (slice(max(int(z0 * P), 0), max(int(z1 * P), 0)), slice(max(int(x0 * P), 0), max(int(x1 * P), 0)))
+        a[sl] = a[sl] * (1 - alpha) + C(col) * alpha
+
+    def disc(cx, cz, r, col):
+        a[(xx - cx * P) ** 2 + (yy - cz * P) ** 2 < (r * P) ** 2] = C(col)
+
+    def shade(x0, z0, x1, z1, k):  # darken (k < 1) or lighten (k > 1) an area
+        sl = (slice(max(int(z0 * P), 0), max(int(z1 * P), 0)), slice(max(int(x0 * P), 0), max(int(x1 * P), 0)))
+        a[sl] = np.clip(a[sl] * k, 0, 1)
+
+    def surface(tones, kind):
+        tones = np.array([rgb(t) for t in tones], np.float32)
+        if kind == "brick":
+            bw, bh = 15, 5
+            row = yy // bh
+            xo = xx + (row % 2) * (bw // 2)
+            pick = rng.integers(0, len(tones), (H // bh + 1, W // bw + 2))
+            out = tones[pick[row, xo // bw]] * (0.95 + 0.1 * rng.random((H, W, 1), np.float32))
+            out[(yy % bh == 0) | (xo % bw == 0)] = C("#cfc3b6") if tones.mean() > 0.4 else C("#a99a8e")
+            return out
+        if kind == "tile":
+            cw, ch = (38, 26) if len(tones) > 3 else (7, 7)
+            pick = rng.integers(0, len(tones), (H // ch + 1, W // cw + 1))
+            out = tones[pick[yy // ch, xx // cw]].copy()
+            out[(yy % ch == 0) | (xx % cw == 0)] = tones.mean(0) * 0.86
+            return out
+        return tones[0] * (0.98 + 0.03 * rng.random((H, W, 1), np.float32))  # flat paint, a little grain
+
+    lower, upper = {"brick": (("#a5513b", "#b45c43", "#9a4a36", "#ad6248", "#8f4532"), "brick"),
+                    "tile": (("#d8d0bf", "#dcd4c4", "#d3cab8", "#ddd6c8"), "tile")}.get(look, ((paint,), "paint")), \
+                   {"brick": (("#6e4a3e", "#5c3d33", "#7a5446", "#4f3a33"), "brick"),
+                    "tile": (("#f4f4f2", "#efefec", "#f7f7f5"), "tile")}.get(look, ((paint,), "paint"))
+    split = int(3.95 * P)
+    a[:split] = surface(*lower)[:split]
+    a[split:] = surface(*upper)[split:]
+
+    # shop floor: a roll-up shutter (sometimes half up) or a glass front, under a lettered sign
+    x0, x1 = 0.35, w - 0.35
+    if rnd.random() < 0.6:
+        up = rnd.choice((0, 0, 1.3))
+        rect(x0, 0, x1, 3.0, "#a7abae")
+        for k in range(30):
+            rect(x0, k * 0.1, x1, k * 0.1 + 0.02, "#8a8e92")
+        rect(x0, 2.85, x1, 3.0, "#7d8185")
+        if up:  # half open: the dim shop inside, goods on shelves
+            rect(x0, 0, x1, up, "#3a3532")
+            for k in range(int((x1 - x0) / 0.18)):
+                rect(x0 + 0.05 + k * 0.18, 0.5, x0 + 0.18 + k * 0.18, 0.5 + rnd.uniform(0.15, 0.4),
+                     rnd.choice(("#c0392b", "#e1b12c", "#2e86de", "#16a085", "#e8e4dc")))
+    else:
+        frame = rnd.choice(("#2a2a2c", "#c9ccd0"))
+        rect(x0, 0, x1, 3.0, frame)
+        rect(x0 + 0.08, 0.08, x1 - 0.08, 2.92, "#f1e6cc")  # a warm lit inside
+        for z in (0.6, 1.2, 1.8):
+            rect(x0 + 0.3, z, x1 - 0.3, z + 0.04, "#8d7f6c")
+            x = x0 + 0.35
+            while x < x1 - 0.5:
+                d = rnd.uniform(0.08, 0.2)
+                rect(x, z + 0.04, x + d * 0.9, z + 0.04 + rnd.uniform(0.12, 0.3), rnd.choice(("#c0392b", "#e1b12c", "#2e86de", "#16a085", "#8e44ad")))
+                x += d
+        rect((x0 + x1) / 2 - 0.03, 0, (x0 + x1) / 2 + 0.03, 3.0, frame)
+        for k in range(rnd.randint(1, 3)):  # posters on the glass
+            px = rnd.uniform(x0 + 0.2, x1 - 0.8)
+            rect(px, 1.0, px + 0.45, 1.65, rnd.choice(("#ffffff", "#f6e58d", "#ff7979", "#7ed6df")))
+    bg, ink = rnd.choice((("#c0392b", "#ffffff"), ("#1e3799", "#ffffff"), ("#f6b93b", "#2b2420"), ("#ffffff", "#c0392b"),
+                          ("#218c74", "#ffffff"), ("#2b2420", "#f6e58d")))
+    rect(0.15, 3.1, w - 0.15, 3.85, bg)
+    word = SHOP_WORDS[sum(i.name.endswith("_face") for i in bpy.data.images) % len(SHOP_WORDS)]  # a different shop each time,
+    # its name in a 5 x 7 pixel font, centred on the sign
+    cell = max(2, min(4, (W - 30) // (len(word) * 6)))
+    gx, gz = (W - len(word) * 6 * cell + cell) // 2, int(3.475 * P) + 7 * cell // 2
+    for i, ch in enumerate(word):
+        for r, bits in enumerate(PIXEL_FONT[ch]):
+            for k, bit in enumerate(bits):
+                if bit == "1":
+                    x0 = gx + (i * 6 + k) * cell
+                    a[gz - (r + 1) * cell:gz - r * cell, x0:x0 + cell] = C(ink)
+
+    # upstairs: windows per floor, each dressed differently
+    n = 1 if w < 4 else (2 if w < 5.5 else 3)
+    for f in range(int((h - 4.5) // 2.4)):
+        z = 4.75 + f * 2.4
+        for j in range(n):
+            cx = (j + 0.5) * w / n
+            wx0, wx1, wz1 = cx - 0.7, cx + 0.7, z + 1.3
+            rect(wx0, z - 0.6, wx1, z, "#000000", 0.05)  # rain streaks under the sill
+            rect(wx0 - 0.06, z - 0.06, wx1 + 0.06, wz1 + 0.06, rnd.choice(("#f2f2ee", "#c9ccd0", "#3d3a36")))
+            rect(wx0, z, wx1, wz1, "#4b5a68")
+            rect(wx0, (z + wz1) / 2, wx1, wz1, "#5f7080")  # sky in the top half
+            dress = rnd.choice(("curtain", "blinds", "grille", "louvre", "plain"))
+            if dress == "curtain":
+                col = rnd.choice(("#e8d5b5", "#d35400", "#f8c291", "#b8e994", "#fad390"))
+                rect(wx0, z, wx0 + 0.45, wz1, col)
+                rect(wx1 - 0.45, z, wx1, wz1, col)
+            elif dress == "blinds":
+                for k in range(int(1.3 / 0.07)):
+                    rect(wx0, z + k * 0.07, wx1, z + k * 0.07 + 0.045, "#e9e6df")
+            elif dress == "louvre":
+                for k in range(9):
+                    rect(wx0, z + k * 0.145, wx1, z + k * 0.145 + 0.08, "#9a9c9e")
+            if dress == "grille" or rnd.random() < 0.3:  # Bangkok window grille
+                for k in range(int(1.4 / 0.14) + 1):
+                    rect(wx0 + k * 0.14, z, wx0 + k * 0.14 + 0.025, wz1, "#2c2c2c")
+                rect(wx0, (z + wz1) / 2, wx1, (z + wz1) / 2 + 0.025, "#2c2c2c")
+            rect(wx0 - 0.1, z - 0.1, wx1 + 0.1, z - 0.02, "#e8e6e0")  # sill
+            if rnd.random() < 0.35:  # a pot plant on the sill
+                rect(wx0 + 0.15, z - 0.02, wx0 + 0.4, z + 0.2, "#b5651d")
+                disc(wx0 + 0.27, z + 0.38, 0.22, "#4f8a3c")
+        gap = w / n - 1.4  # wall between two windows, or beside a lone one
+        if rnd.random() < 0.6 and (gap >= 0.9 if n > 1 else gap / 2 >= 0.95):  # an air-con box hung on the wall
+            ax = w / n - 0.4 if n > 1 else rnd.choice((0.1, w - 0.9))
+            rect(ax, z - 0.45, ax + 0.8, z + 0.1, "#000000", 0.08)
+            rect(ax, z + 0.1, ax + 0.8, z + 0.65, "#f2f2ee")
+            disc(ax + 0.55, z + 0.375, 0.2, "#b8bbbe")
+            for k in range(5):
+                rect(ax + 0.35, z + 0.2 + k * 0.08, ax + 0.75, z + 0.22 + k * 0.08, "#8a8e92")
+    # weather: a parapet, grime along the top, a few long stains down the wall
+    rect(0, h - 0.3, w, h, "#000000", 0.12)
+    for k in range(10):
+        shade(0, h - 1.0 + k * 0.07, w, h - 0.93 + k * 0.07, 0.985)
+    for _ in range(rnd.randint(2, 5)):
+        sx = rnd.uniform(0, w - 0.3)
+        rect(sx, rnd.uniform(4.2, h - 2), sx + rnd.uniform(0.1, 0.3), h - 0.3, "#000000", 0.05)
+
+    img = bpy.data.images.new(name, W, H)
+    img.pixels.foreach_set(np.concatenate([a, np.ones((H, W, 1), np.float32)], 2).ravel())
+    os.makedirs(TEX_DIR, exist_ok=True)
+    img.filepath_raw = os.path.join(TEX_DIR, name + ".png")
+    img.file_format = "PNG"
+    img.save()
+    return img
+
+
+def seven_eleven(name, loc):
+    """A Bangkok 7-Eleven in a white shophouse (after a street photo): five lit sign panels, louvred windows upstairs,
+    dark-framed glass shop front with ATMs, facing our shop across the road."""
+    g = empty(name, loc, rot=(0, 0, 180))  # built like the shop (front toward local -Y), then turned to face it
+    W = 7.2
+    wall, frame = mat("se_wall", color="#f2f0ea"), mat("se_frame", color="#2a2a2c", rough=0.4, metal=0.4)
+    box(f"{name}_upper", (W, 0.4, 5.2), (0, 0.2, 6.4), wall, parent=g, bevel=0.04)
+    box(f"{name}_pipe", (0.22, 0.14, 5.2), (0.05, -0.07, 6.4), wall, parent=g, bevel=0.03)
+    # upstairs: two recessed bands of grey louvres
+    for k, cx in enumerate((-1.75, 1.85)):
+        box(f"{name}_recess_{k}", (3.0, 0.06, 1.25), (cx, -0.01, 7.1), mat("se_recess", color="#5d6064", rough=0.8), parent=g, bevel=0)
+        for j in range(9):
+            box(f"{name}_louvre_{k}_{j}", (2.9, 0.05, 0.07), (cx, -0.06, 6.55 + j * 0.135), mat("se_louvre", color="#9a9c9e", rough=0.6), parent=g, bevel=0)
+        for j in range(5):
+            box(f"{name}_louvre_post_{k}_{j}", (0.05, 0.08, 1.25), (cx - 1.45 + j * 0.725, -0.07, 7.1), mat("se_louvre_post", color="#d9d9d6"), parent=g, bevel=0)
+    box(f"{name}_sill", (W, 0.35, 0.12), (0, -0.1, 6.35), wall, parent=g, bevel=0.02)
+    # the sign: five lit panels, stripes on four, the logo in the middle
+    pw = (W - 0.4) / 5
+    for k in range(5):
+        x = -W / 2 + 0.2 + pw * (k + 0.5)
+        box(f"{name}_panel_{k}", (pw - 0.06, 0.18, 0.9), (x, -0.12, 4.35), mat("se_panel", color="#ffffff", emit=0.55), parent=g, bevel=0.02)
+        if k != 2:
+            for j, col in enumerate(("#f58220", "#008a4b", "#ee2526")):
+                box(f"{name}_stripe_{k}_{j}", (pw - 0.22, 0.02, 0.12), (x, -0.22, 4.6 - j * 0.25), mat(f"se_stripe_{j}", color=col, emit=0.35), parent=g, bevel=0)
+    box(f"{name}_logo_bar", (0.42, 0.02, 0.11), (-0.02, -0.22, 4.64), mat("se_stripe_0", color="#f58220", emit=0.35), parent=g, bevel=0)
+    box(f"{name}_logo_stem", (0.12, 0.02, 0.62), (0.06, -0.22, 4.32), mat("se_stripe_2", color="#ee2526", emit=0.35), parent=g, bevel=0, rot=(0, -22, 0))
+    text(f"{name}_eleven", "ELEVEN", 0.13, (0, -0.24, 4.38), mat("se_green", color="#008a4b", rough=0.5), parent=g,
+         extrude=0.006, fonts=SIGN_FONTS, align="CENTER", bevel=0)
+    box(f"{name}_ledge", (W, 0.7, 0.16), (0, -0.25, 3.82), wall, parent=g, bevel=0.03)
+    # shop floor: white piers, two dark-framed glass fronts, the lit shop behind them
+    for k, (x, w) in enumerate(((-W / 2 + 0.15, 0.3), (-0.05, 0.4), (W / 2 - 0.15, 0.3))):
+        box(f"{name}_pier_{k}", (w, 0.4, 3.75), (x, 0.2, 1.875), wall, parent=g, bevel=0.02)
+    box(f"{name}_inside", (W - 0.6, 0.1, 3.0), (0, 1.6, 1.5), mat("se_inside", color="#f4f7f2", emit=1.2), parent=g, bevel=0)
+    box(f"{name}_floor", (W - 0.6, 1.8, 0.06), (0, 0.9, 0.03), mat("se_floor", color="#e8e8e4", rough=0.3), parent=g, bevel=0)
+    rnd = random.Random(7)
+    goods = ["#e94e3c", "#f6b93b", "#2e86de", "#10ac84", "#f368e0", "#ffffff", "#ff9f43"]
+    for r, z in enumerate((0.45, 0.95, 1.45, 1.95)):
+        box(f"{name}_shelf_{r}", (W - 1.0, 0.5, 0.04), (0, 1.3, z), mat("steel", rough=0.4, metal=0.6), parent=g, bevel=0)
+        x = -W / 2 + 0.7
+        while x < W / 2 - 0.7:
+            w = rnd.uniform(0.12, 0.3)
+            c = rnd.choice(goods)
+            box(f"{name}_goods_{r}_{round(x * 100)}", (w * 0.9, 0.3, rnd.uniform(0.18, 0.36)), (x + w / 2, 1.3, z + 0.14),
+                mat(f"goods_{goods.index(c)}", color=c, rough=0.5), parent=g, bevel=0.01)
+            x += w
+    for k, (x0, x1) in enumerate(((-W / 2 + 0.3, -0.25), (0.15, 2.15))):
+        cx, w = (x0 + x1) / 2, x1 - x0
+        box(f"{name}_glass_{k}", (w, 0.03, 3.3), (cx, 0.05, 1.65), mat("se_glass", color="#cfe8f0", rough=0.05, alpha=0.3), parent=g, bevel=0)
+        for e, (dx, dz, sx, sz) in enumerate(((0, 3.3, w, 0.1), (0, 0.05, w, 0.1), (0, 2.6, w, 0.06), (-w / 2, 1.65, 0.08, 3.3), (w / 2, 1.65, 0.08, 3.3), (0, 1.65, 0.06, 3.3))):
+            box(f"{name}_frame_{k}_{e}", (sx, 0.08, sz), (cx + dx, 0.0, dz), frame, parent=g, bevel=0)
+    # posters stuck on the glass
+    for k, (x, z, w, h, col) in enumerate(((-2.2, 2.85, 0.5, 0.35, "#ffffff"), (-1.0, 1.1, 0.55, 0.75, "#f6e7b0"), (-0.8, 2.85, 0.6, 0.3, "#ffffff"),
+                                          (0.55, 2.1, 0.45, 0.6, "#3c6fd8"), (0.55, 1.4, 0.45, 0.6, "#f6e7b0"), (0.55, 0.75, 0.45, 0.5, "#3c6fd8"))):
+        box(f"{name}_poster_{k}", (w, 0.01, h), (x, -0.05, z), mat(f"se_poster_{k}", color=col, rough=0.5), parent=g, bevel=0)
+    # ATMs on the right, a red promo stand and a bin out front
+    for k, (x, col) in enumerate(((2.45, "#2b59c3"), (3.0, "#f5b324"))):
+        box(f"{name}_atm_{k}", (0.5, 0.45, 1.75), (x, -0.1, 0.875), mat(f"se_atm_{k}", color=col, rough=0.4), parent=g, bevel=0.03)
+        box(f"{name}_atm_screen_{k}", (0.3, 0.02, 0.25), (x, -0.33, 1.35), mat("window_dark", color="#3b4652", rough=0.2), parent=g, bevel=0)
+    box(f"{name}_promo", (0.75, 0.12, 1.45), (-2.6, -0.65, 0.73), mat("se_promo", color="#e3342f", rough=0.5), parent=g, bevel=0.02)
+    cyl(f"{name}_bin", 0.18, 0.7, (0.5, -0.45, 0.35), mat("steel", rough=0.4, metal=0.6), parent=g)
+    return g
 
 
 def power_pole(name, loc):
@@ -702,8 +996,10 @@ def plank_bench(name, loc, length, height, depth):
 
 def build_building():
     use_collection("Building")
-    box("wall_upper", (9 + EXTRA_W, 0.4, 5.3), (EXTRA_W / 2, 0.2, 6.35), mat("wall", rough=0.85), bevel=0.04)
-    box("pillar_right", (1.4, 0.4, 3.55), (3.8 + EXTRA_W, 0.2, 1.925), mat("concrete", rough=0.85), bevel=0.03)
+    brick = image_mat("red_brick", brick_image("red_brick", RED_BRICK), rough=0.85, box_scale=1 / 1.2)
+    box("wall_upper", (9 + EXTRA_W, 0.4, 5.3), (EXTRA_W / 2, 0.2, 6.35), brick, bevel=0.02)
+    box("coping", (9.1 + EXTRA_W, 0.5, 0.25), (EXTRA_W / 2, 0.15, 9.1), mat("coping", color="#2f3133", rough=0.5, metal=0.3), bevel=0.02)
+    box("pillar_right", (1.4, 0.4, 3.55), (3.8 + EXTRA_W, 0.2, 1.925), brick, bevel=0.02)
     # left pillar: concrete blocks in running bond, like the reference
     box("pillar_left_mortar", (1.38, 0.36, 3.53), (-3.8, 0.22, 1.925), mat("mortar", rough=0.9), bevel=0)
     row_h = 3.55 / 10
@@ -1062,8 +1358,8 @@ def project_book(name, loc, rot=0):
         box(f"{name}_board_{k}", (0.23, 0.31, 0.006), (0.004, 0, z), cover, parent=g, bevel=0.002)
     box(f"{name}_spine", (0.008, 0.31, 0.037), (-0.111, 0, 0.0185), cover, parent=g, bevel=0.002)
     box(f"{name}_pages", (0.215, 0.296, 0.025), (0.002, 0, 0.0185), mat("white"), parent=g, bevel=0.001)
-    text(f"{name}_title", "PROJECTS", 0.028, (0.004, 0, 0.0375), mat("ink", rough=0.6), parent=g, extrude=0.0008,
-         fonts=SIGN_FONTS, rot=(0, 0, 90), align="CENTER")
+    text(f"{name}_title", "PORTFOLIO", 0.027, (0.004, 0, 0.0375), mat("ink", rough=0.6), parent=g, extrude=0.0006,
+         fonts=SIGN_FONTS, rot=(0, 0, 90), align="CENTER", bevel=0)
     return g
 
 

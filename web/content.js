@@ -1,5 +1,5 @@
 // Everything the speech-bubble cards say. Edit freely: keys match the `hotspot` values in the Blender scene.
-// Write about the work; keep hobbies out of the copy (they live in the design instead).
+// Write about the work. Hobbies get one page in the portfolio book (cards.interests) and live in the design too.
 
 export const site = {
   name: "Pongsakorn Naklang",
@@ -45,6 +45,15 @@ export const cards = {
     title: "iPort",
     body: "A web iPod: pick a song and click through a classic iPod interface in the browser.",
     link: { label: "Open iPort", url: "https://iport-pi.vercel.app/" },
+  },
+  "project:nakang": {
+    title: "NAKANG",
+    body: "This shop. A Bangkok street corner you can walk up to, sit in and tap around: modelled in Blender with Meshy models, built with three.js, coded with Claude Code.",
+  },
+  // the "off the clock" page of the portfolio book: just the topics
+  interests: {
+    title: "Off the clock",
+    rows: [["Old tech & gadgets", ""], ["Graphics", ""], ["Custom keyboards", ""], ["Mid-century home", ""], ["Indoor plants", ""], ["Music", ""], ["Making my own games", ""]],
   },
   contact: {
     title: "Contact",

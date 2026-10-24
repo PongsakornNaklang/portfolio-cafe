@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { cards, site, drinks } from "./content.js?v=17";
+import { cards, site, drinks } from "./content.js?v=19";
 import { createSound, createStreetLife } from "./life.js?v=18";
 
 // ---------------------------------------------------------------- time of day (visitor's clock; ?time=night to test)
@@ -216,7 +216,7 @@ const ndc = new THREE.Vector2();
 const tip = document.getElementById("tip");
 const LABEL = { about: "About me", skills: "Menu", hello: "Say hi", music: "Music on / off", guestbook: "Write on the board",
   contact: "Contact", clock: "What time is it?", lamp: "Light on / off", records: "Pick a record",
-  honk: "Beep beep!", bird: "Shoo!", book: "Flip through my projects", cat: "Pet the cat" };
+  honk: "Beep beep!", bird: "Shoo!", book: "Open my portfolio", cat: "Pet the cat" };
 
 function hotspotAt(x, y) {
   ndc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
@@ -409,34 +409,96 @@ function animateCat(now) {
   catBody.scale.set(1 + k * 0.012, 1 + k * 0.025, 1 + k * 0.012);
 }
 
-// ---------------------------------------------------------------- the project book on the centre table: one page at a time
-const bookPages = [
-  { kicker: site.name, title: "Projects", body: "Things I've made. Turn the page →" },
-  ...Object.keys(cards).filter((k) => k.startsWith("project:")).map((k) => ({ kicker: "Project", ...cards[k] })),
+// ---------------------------------------------------------------- the portfolio book on the centre table
+// Everything in one book: cover, contents, about, skills, every project, interests, contact. Lies open two pages a
+// spread (one page on a phone); Next / Back, the arrow keys or a tap on either half turn a leaf over the spine.
+const chapters = [
   { kicker: "About", ...cards.about },
-  { kicker: "Say hi", ...cards.contact },
+  { kicker: "Skills", ...cards.skills, title: "What I work with" },
+  ...Object.keys(cards).filter((k) => k.startsWith("project:")).map((k) => ({ kicker: "Projects", ...cards[k] })),
+  { kicker: "Interests", ...cards.interests },
+  { kicker: "Contact", ...cards.contact },
 ];
+const bookPages = [{ cover: true }, { toc: true }, ...chapters];
+const tocHTML = () => `<div class="kicker">Contents</div><h2>Inside</h2><ol class="toc">` +
+  chapters.map((c, k) => [c.kicker, k + 2]).filter(([name], k) => chapters.findIndex((c) => c.kicker === name) === k) // each chapter's first page
+    .map(([name, n]) => `<li><button data-go="${n}"><span>${esc(name)}</span><i></i><b>${n}</b></button></li>`).join("") + `</ol>`;
+function fillPage(el, k, side) { // k: page index; outside the book = the yellow endpaper; "blank" = the back of a page
+  const p = bookPages[k];
+  el.className = `pg ${side}` + (k === "blank" ? "" : !p ? " endpaper" : p.cover ? " title" : "");
+  el.innerHTML = !p ? "" : p.cover
+    ? `<small>${esc(site.name)}</small><h1>Portfolio</h1><p>Full-stack developer · ${new Date().getFullYear()}</p><div class="hint">Tap the page to open →</div>`
+    : (p.toc ? tocHTML() : `<div class="kicker">${esc(p.kicker)}</div>` + cardHTML(p)) + `<div class="folio">${k}</div>`;
+}
+const book = { at: 0, busy: false }; // at: the right-hand page (the only page on a phone)
 function openBook() {
-  const dlg = document.getElementById("book"), page = document.getElementById("book-page");
+  const dlg = document.getElementById("book"), spread = document.getElementById("book-spread");
+  const L = document.getElementById("pg-l"), R = document.getElementById("pg-r");
   const prev = document.getElementById("book-prev"), next = document.getElementById("book-next");
-  let i = 0;
-  const show = (step) => {
-    i = THREE.MathUtils.clamp(i + step, 0, bookPages.length - 1);
-    page.innerHTML = `<div class="kicker">${esc(bookPages[i].kicker)}</div>` + cardHTML(bookPages[i]);
-    page.className = "page";
-    void page.offsetWidth; // restart the page-turn animation
-    if (step) page.classList.add(step > 0 ? "flip" : "flip-back");
-    document.getElementById("book-num").textContent = `${i + 1} / ${bookPages.length}`;
-    prev.disabled = i === 0;
-    next.disabled = i === bookPages.length - 1;
-    if (step) feedback(page, false);
+  const two = () => innerWidth > 720;
+  const last = () => (two() ? bookPages.length - 1 + ((bookPages.length - 1) % 2 ? 1 : 0) : bookPages.length - 1);
+  const render = () => {
+    spread.classList.toggle("one", !two());
+    if (two() && book.at % 2) book.at++; // on a spread the right-hand page is always even
+    book.at = Math.min(book.at, last());
+    fillPage(L, book.at - 1, "left");
+    fillPage(R, book.at, "right");
+    prev.disabled = book.at === 0;
+    next.disabled = book.at === last();
   };
-  prev.onclick = () => show(-1);
-  next.onclick = () => show(1);
-  dlg.onkeydown = (e) => { if (e.key === "ArrowRight") show(1); if (e.key === "ArrowLeft") show(-1); };
+  const turn = (to) => {
+    if (two() && to % 2) to++;
+    to = THREE.MathUtils.clamp(to, 0, last());
+    if (book.busy || to === book.at) return;
+    const fwd = to > book.at, from = book.at;
+    const leaf = document.createElement("div");
+    leaf.innerHTML = `<div class="pg front"></div><div class="pg back"></div>`;
+    const [front, back] = leaf.children;
+    let a0 = 0, a1 = fwd ? -180 : 180, land = () => {};
+    if (two() && fwd) { // lift the right page, lay it down as the new left page
+      leaf.className = "leaf on-right"; fillPage(front, from, "right"); fillPage(back, to - 1, "left"); fillPage(R, to, "right");
+      land = () => fillPage(L, to - 1, "left");
+    } else if (two()) { // lift the left page back over to the right
+      leaf.className = "leaf on-left"; fillPage(front, from - 1, "left"); fillPage(back, to, "right"); fillPage(L, to - 1, "left");
+      land = () => fillPage(R, to, "right");
+    } else if (fwd) { // one page: the old page lifts away over the spine
+      leaf.className = "leaf on-right"; fillPage(front, from, "right"); fillPage(back, "blank", "left"); fillPage(R, to, "right");
+    } else { // one page: the new page swings back in from the spine
+      leaf.className = "leaf on-right"; fillPage(front, to, "right"); fillPage(back, "blank", "left");
+      [a0, a1] = [-180, 0];
+      land = () => fillPage(R, to, "right");
+    }
+    for (const f of [front, back]) f.classList.add(f === front ? "front" : "back");
+    spread.append(leaf);
+    book.busy = true;
+    book.at = to;
+    prev.disabled = to === 0;
+    next.disabled = to === last();
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const opts = { duration: reduce ? 0 : 700, easing: "cubic-bezier(.45,.05,.3,1)" };
+    // the page darkens as it stands up off the paper, and lightens as it lies down
+    front.animate([{ filter: "brightness(1)" }, { filter: "brightness(.78)" }], opts);
+    back.animate([{ filter: "brightness(.78)" }, { filter: "brightness(1)" }], opts);
+    leaf.animate([{ transform: `rotateY(${a0}deg)` }, { transform: `rotateY(${(a0 + a1) / 2}deg) translateZ(18px)` }, { transform: `rotateY(${a1}deg)` }], opts)
+      .finished.then(() => { land(); leaf.remove(); book.busy = false; });
+    feedback(R, false);
+  };
+  const step = () => (two() ? 2 : 1);
+  prev.onclick = () => turn(book.at - step());
+  next.onclick = () => turn(book.at + step());
+  spread.onclick = (e) => {
+    const go = e.target.closest("[data-go]");
+    if (go) return turn(+go.dataset.go);
+    if (e.target.closest("a, button")) return;
+    const r = spread.getBoundingClientRect(); // tap the right half to go on, the left half to go back
+    turn(book.at + (e.clientX > r.left + r.width / 2 ? step() : -step()));
+  };
+  dlg.onkeydown = (e) => { if (e.key === "ArrowRight") next.onclick(); if (e.key === "ArrowLeft") prev.onclick(); };
   document.getElementById("book-close").onclick = () => dlg.close();
   dlg.onclick = (e) => { if (e.target === dlg) dlg.close(); }; // tap outside the book to close it
-  show(0);
+  if (!book.render) addEventListener("resize", () => dlg.open && !book.busy && book.render());
+  book.render = render;
+  render();
   dlg.showModal();
 }
 
@@ -677,8 +739,8 @@ addEventListener("pointermove", (e) => {
   if (!gaze.drag) return;
   const dx = e.clientX - gaze.drag.x, dy = e.clientY - gaze.drag.y;
   if (Math.abs(dx) + Math.abs(dy) > 4) gaze.moved = true;
-  // how far you can turn: a glance on the street (the shop stays in view), most of the room when seated
-  const [yaw, up, down] = seated ? [1.75, 0.45, 0.5] : [0.52, 0.26, 0.26]; // ±100° / ±30°; up/down ±26° / ±15°
+  // how far you can turn: a glance on the street (the shop stays in view), the whole room when seated
+  const [yaw, up, down] = seated ? [Infinity, 0.45, 0.5] : [0.52, 0.26, 0.26]; // seated: all the way round; street ±30°; up/down ±26° / ±15°
   gaze.yaw = THREE.MathUtils.clamp(gaze.yaw + dx * 0.004, -yaw, yaw);
   gaze.pitch = THREE.MathUtils.clamp(gaze.pitch + dy * 0.003, -down, up);
   gaze.drag = { x: e.clientX, y: e.clientY };
@@ -771,6 +833,7 @@ const TOUR = [
   { obj: "HOT_character", frame: { minY: 1.25 }, title: "That's me", body: "Tap to say hi, read about me, or order a drink and sit down for a bit." },
   { obj: "HOT_menu", frame: { minY: 1.35 }, title: "The menu", body: "My skills and tools, listed like a coffee menu." },
   { obj: "HOT_record", title: "Music", body: "Tap the record player to put some lofi on." },
+  { obj: "HOT_book", title: "Portfolio", body: "The yellow book on the table is my whole portfolio: about, skills, projects and more." },
   { obj: "HOT_board", title: "Guestbook", body: "Leave a note — draw anything on the blue board.",
     shot: () => ({ pos: new THREE.Vector3(2.4, 1.75, -1.75), look: new THREE.Vector3(4.9, 1.45, -1.75), fov: 40 }) },
   { obj: "HOT_clock", title: "Clock", body: "Shows your time. The shop lights follow it too." },

@@ -6,22 +6,26 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 
 ### Added
 - After ordering, pick any seat: the corner table, the stools at the middle table, the window bench, or the plastic chair outside.
-- Drag to look around, on the street and while seated: a glance of up to 30° either way on the street (the shop stays in view), up to 100° when seated. The cursor is an open hand where you can drag and closes while you drag. On a phone a sideways swipe turns your head and an up/down swipe still walks; your view eases back to straight ahead as you walk.
+- Drag to look around, on the street and while seated: a glance of up to 30° either way on the street (the shop stays in view), all the way round when seated. The cursor is an open hand where you can drag and closes while you drag. On a phone a sideways swipe turns your head and an up/down swipe still walks; your view eases back to straight ahead as you walk.
 - Change seat while seated; your drink comes with you.
 - Finish your drink and order another without leaving your seat.
 - A slurp when you sip, with a rattle on the last one.
 - Tap the vinyl shelf to pick a record: two lofi tracks (CC0, by omfgdude) or the shop's own tape.
-- A yellow project book on the centre table: tap it to flip through the projects, about and contact, page by page.
+- A yellow portfolio book on the centre table holds everything: cover, contents, about, skills, every project (iPort and this shop), an "Off the clock" page listing interests, and contact. It lies open two pages to a spread (one page on a phone); Next / Back, the arrow keys or a tap on either half turns a page over the spine, and the contents jump to any chapter. The tour now stops at the book.
+- Across the road: a Bangkok 7-Eleven in a white shophouse, with five lit sign panels, louvred windows upstairs, a glass front with shelves, ATMs and a red promo stand. You see it from the window seats.
+- Shophouses on both sides of the road, all the way to the ends of the street. Each front is one painted image (brick, stone and mosaic tiles, or paint), with a shutter or glass shop floor, a sign spelling the shop's name (NOODLE, TAILOR, SALON…), and windows dressed with curtains, blinds or grilles, air-con boxes, pot plants and rain streaks.
 - A ginger shop cat naps on a shell chair in the corner (a Meshy model, its raised stripes flattened into the fur). It breathes slowly; tap it to pet it and it purrs. That chair is no longer a seat, but you can sit next to it.
 - The tuk-tuk's and taxi's wheels turn as they drive: cut out of the Meshy models by `prep_meshy.py`, each spinning on its own axle.
 - Tap a passing tuk-tuk or taxi: beep beep, then the dog barks or the cat meows. Tap a myna on the wire and the birds nearby fly off.
 - The character waves with a little "huh!" at the tour's "That's me" step and whenever he says hello.
 
 ### Changed
+- Our shop's front is red brick with a dark coping along the top, after cafés like KONZ and Mirak. The left neighbour is cream stone tiles with white mosaic upstairs; the right is red brick with a darker brick upper floor and gas tanks on the ledge.
 - The cards now say who you are, starting from the old portfolio (my-portfolio-2025) and rewritten: a full-stack intro that mentions building this shop with Meshy and Claude Code; a menu of Next.js + React, Node.js, TypeScript, Tailwind CSS, Three.js + Blender, and the AI tools Claude Code and Meshy; สวัสดีครับ! on the A-frame; and Contact says you're looking for a full-time role.
 - The tuk-tuk and taxi are much closer to the Meshy originals: about 50k faces and 2048 px paint each (was 20-25k and 1024 px), so the panels are smooth and the paint sharp. The page download grows by about 4 MB.
 
 ### Fixed
+- The book's cover title is crisp lettering, not a black bar.
 - Cars and tuk-tuks keep driving past while you're inside or seated, not only on the street.
 - A strip of sky showed through the floor under the shop window.
 - The seat bar and the scroll hint no longer cover the sound and ? buttons on phones.
