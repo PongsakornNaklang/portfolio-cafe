@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { cards, site, drinks } from "./content.js?v=12";
-import { createSound, createStreetLife } from "./life.js?v=12";
+import { cards, site, drinks } from "./content.js?v=13";
+import { createSound, createStreetLife } from "./life.js?v=13";
 
 // ---------------------------------------------------------------- time of day (visitor's clock; ?time=night to test)
 const PRESETS = {
@@ -226,8 +226,10 @@ function hotspotAt(x, y) {
   return null;
 }
 
+// only the 3D scene itself is tappable: a card, button or the tour box on top of it blocks what's behind
+const onScene = (e) => e.target === renderer.domElement;
 addEventListener("pointermove", (e) => {
-  const o = hotspotAt(e.clientX, e.clientY);
+  const o = onScene(e) ? hotspotAt(e.clientX, e.clientY) : null;
   renderer.domElement.style.cursor = o ? "pointer" : "";
   tip.style.opacity = o ? 1 : 0;
   if (o) {
@@ -244,7 +246,7 @@ addEventListener("click", (e) => {
   if (bubble?.contains(e.target) || e.target.closest?.("#tour, #help, #board, #mute, #seatbar")) return;
   bubble?.remove();
   bubble = null;
-  const o = hotspotAt(e.clientX, e.clientY);
+  const o = onScene(e) ? hotspotAt(e.clientX, e.clientY) : null;
   if (!o) return;
   const key = o.userData.hotspot;
   if (key === "sip") return sip();

@@ -10,6 +10,7 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 - The character waves with a little "huh!" at the tour's "That's me" step and whenever he says hello.
 
 ### Fixed
+- Cards, the tour box and buttons block what's behind them: no hover label or tap goes through to the scene.
 - A card opened during the tour no longer stays floating on screen after Next or Back.
 - The tour camera frames each thing whole, instead of cutting off the character's head or the menu, and goes inside so plants and the menu stand no longer block the view.
 
