@@ -34,10 +34,12 @@ for ob in bpy.data.objects:
         ob.modifiers.move(len(ob.modifiers) - 1, 0)  # before the armature, so the rigged tee keeps its skin weights
 
 
-# the Meshy character ships 2K-4K textures: 1024 is plenty at this size on screen
+# the Meshy character ships 2K-4K textures: 1024 is plenty at this size on screen. The tuk-tuk and taxi keep 2048:
+# they pass close to the camera
 for img in bpy.data.images:
-    if img.size[0] > 1024:
+    if img.size[0] > 1024 and not img.name.startswith(("taxi_", "tuktuk_")):
         img.scale(1024, 1024)
+    print("IMG", img.name, img.size[0])
 
 
 def gl(v):

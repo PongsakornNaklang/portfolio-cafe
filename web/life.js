@@ -112,8 +112,10 @@ export function createStreetLife({ scene, camera, sound }) {
     o.rotation.y = dir > 0 ? 0 : Math.PI;
     o.userData.hotspot = "honk"; // tap it: the horn, then the driver (dog barks, cat meows)
     scene.add(o);
+    const wheels = []; // cut out of the Meshy model by prep_meshy.py, origin on the axle
+    o.traverse((c) => { if (/^wheel_/.test(c.name)) wheels.push({ c, r: new THREE.Box3().setFromObject(c).getSize(new THREE.Vector3()).y / 2 }); });
     const loop = sound.play(spec.sound, { loop: true, volume: 0, rate: spec.rate * rand(0.92, 1.08) });
-    actors.push({ type: "vehicle", o, dir, v: rand(...spec.speed), spec, loop, seed: rand(0, 9) });
+    actors.push({ type: "vehicle", o, dir, v: rand(...spec.speed), spec, loop, seed: rand(0, 9), wheels });
   }
 
   // ---------------------------------------------------------------- mynas: fly in, perch on a power line, fly off
@@ -152,6 +154,7 @@ export function createStreetLife({ scene, camera, sound }) {
       let done = false;
       if (a.type === "vehicle") {
         o.position.x += a.dir * a.v * dt;
+        for (const w of a.wheels) w.c.rotation.z -= (a.v * dt) / w.r; // roll: the model drives along its own +X
         o.position.y = Math.abs(Math.sin(time * 9 + a.seed)) * 0.025; // a little road bounce (the Meshy models are one piece: no wheels to spin)
         if (a.loop) a.loop.gain.gain.value = a.spec.vol * near(o.position, camera);
         o.visible = Math.abs(o.position.z - camera.position.z) > 2.2 || camera.position.z > 12; // never through the lens

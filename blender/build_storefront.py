@@ -1829,10 +1829,12 @@ def meshy_template(name, file, loc):
     one textured mesh facing +X, standing on its origin."""
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "meshy", "street", f"{file}.glb"))
-    ob = next(o for o in bpy.data.objects if o not in before and o.type == "MESH")
-    for c in ob.users_collection:
-        c.objects.unlink(ob)
-    _coll["current"].objects.link(ob)
+    new = [o for o in bpy.data.objects if o not in before]
+    for o in new:  # the model plus its wheels (children), if it has any
+        for c in o.users_collection:
+            c.objects.unlink(o)
+        _coll["current"].objects.link(o)
+    ob = next(o for o in new if o.type == "MESH" and o.parent is None)
     ob.name, ob.location = name, loc
     return ob
 

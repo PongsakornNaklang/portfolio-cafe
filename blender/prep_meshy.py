@@ -2,7 +2,8 @@
 
 Run once after downloading new models from Meshy (the raw files are 20-60 MB each, kept out of git):
   blender -b -P blender/prep_meshy.py -- <folder with the Meshy_AI_*.glb files> [names to redo, e.g. cat]
-Each model ends up facing +X, standing on z=0, centred, decimated, with 1024 px textures.
+Each model ends up facing +X, standing on z=0, centred and decimated; the vehicles' wheels are cut out into child
+objects (wheel_0, wheel_1...) with their origin on the axle, so the page can spin them.
 """
 import glob
 import os
@@ -21,11 +22,77 @@ os.makedirs(out, exist_ok=True)
 
 # name: (file pattern, faces to keep, scale, turn about Z so the front faces +X, texture size, flatten painted stripes)
 MODELS = {
-    "taxi": ("Meshy_AI_cat_driving_pink_taxi_1024042210*.glb", 25000, 2.05, 180, 1024, False),
-    "tuktuk": ("Meshy_AI_minimal_dog_driving_t_*.glb", 20000, 1.37, 180, 1024, False),
+    "taxi": ("Meshy_AI_cat_driving_pink_taxi_1024042210*.glb", 80000, 2.05, 180, 2048, False),
+    "tuktuk": ("Meshy_AI_minimal_dog_driving_t_*.glb", 80000, 1.37, 180, 2048, False),
     "bird": ("Meshy_AI_minimal_myna_bird_*.glb", 6000, 0.24, 90, 512, False),
     "cat": ("Meshy_AI_sleeping_curled_cat_*.glb", 12000, 0.25, 0, 1024, True),
 }
+
+# where each wheel touches the road, in the finished model: (x, y from, y to); the radius is found from the mesh
+WHEELS = {
+    "taxi": [(-1.06, 0.66, 0.95), (-1.06, -0.95, -0.66), (1.25, 0.66, 0.95), (1.25, -0.95, -0.66)],
+    "tuktuk": [(-0.86, 0.44, 0.6), (-0.86, -0.6, -0.44), (1.01, -0.07, 0.07)],
+}
+
+
+def cut_wheels(ob, wheels):
+    """Meshy fuses the wheels into the body. Each tyre is a dense ring of vertices with a thin gap before the wheel
+    arch: find the ring's radius, cut just past it, and split those faces off as a child object on the axle.
+    Mudguards hug the tyre, so faces in body paint (saturated colour) stay with the body unless they're on the hub."""
+    me = ob.data
+    img = next(l.from_node.image for l in me.materials[0].node_tree.links if l.to_socket.name == "Base Color")
+    w_, h_ = img.size
+    px = np.array(img.pixels[:], np.float32).reshape(h_, w_, 4)[:, :, :3]
+    for i, (xc, y0, y1) in enumerate(wheels):
+        me = ob.data
+        co = np.empty(len(me.vertices) * 3)
+        me.vertices.foreach_get("co", co)
+        co = co.reshape(-1, 3)
+        band = (co[:, 1] >= y0 - 0.05) & (co[:, 1] <= y1 + 0.05)
+        rs = np.arange(0.15, 0.7, 0.005)
+        hits = [np.sum(band & (np.abs(np.hypot(co[:, 0] - xc, co[:, 2] - r) - r) < 0.012)) for r in rs]
+        r = rs[int(np.argmax(hits))]
+        zc = r  # first guess: the axle right above where the tyre touches the road
+        for _ in range(4):  # then fit a circle to the tread so the wheel spins true
+            ring = band & (np.abs(np.hypot(co[:, 0] - xc, co[:, 2] - zc) - r) < 0.02)
+            x, z = co[ring, 0], co[ring, 2]
+            (cd, ce, cf), *_ = np.linalg.lstsq(np.stack([x, z, np.ones_like(x)], 1), -(x * x + z * z), rcond=None)
+            xc, zc = -cd / 2, -ce / 2
+            r = np.sqrt(xc * xc + zc * zc - cf)
+        d = np.hypot(co[:, 0] - xc, co[:, 2] - zc)
+        gaps = np.arange(0.01, 0.08, 0.01)
+        cut = min(r + gaps[int(np.argmin([np.sum(band & (d > r + g) & (d < r + g + 0.02)) for g in gaps]))] + 0.01, r + 0.04)
+        inside = band & (d < cut)
+        pv = np.empty(sum(len(p.vertices) for p in me.polygons), np.int64)
+        me.polygons.foreach_get("vertices", pv)
+        starts = np.empty(len(me.polygons), np.int64)
+        me.polygons.foreach_get("loop_start", starts)
+        sel = np.logical_and.reduceat(inside[pv], starts)
+        uv = np.empty(len(me.loops) * 2, np.float32)
+        me.uv_layers.active.data.foreach_get("uv", uv)
+        uv = uv.reshape(-1, 2)
+        c = px[np.clip((uv[:, 1] * h_).astype(int), 0, h_ - 1), np.clip((uv[:, 0] * w_).astype(int), 0, w_ - 1)]
+        c = np.add.reduceat(c, starts) / np.diff(np.append(starts, len(uv)))[:, None]  # each face's mean paint
+        sat = (c.max(1) - c.min(1)) / np.maximum(c.max(1), 1e-6)
+        hub = np.add.reduceat(d[pv], starts) / np.diff(np.append(starts, len(pv))) < r * 0.7
+        sel &= (sat < 0.35) | (c.max(1) < 0.25) | hub
+        me.polygons.foreach_set("select", sel)
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_mode(type="FACE")
+        bpy.ops.object.mode_set(mode="OBJECT")
+        me.polygons.foreach_set("select", sel)
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.separate(type="SELECTED")
+        bpy.ops.object.mode_set(mode="OBJECT")
+        w = next(o for o in bpy.context.selected_objects if o != ob)
+        w.select_set(False)
+        w.name = w.data.name = f"wheel_{i}"
+        axle = Vector((xc, (y0 + y1) / 2, zc))
+        w.data.transform(Matrix.Translation(-axle))
+        w.location = axle
+        w.parent = ob
+        print("WHEEL", i, "axle", [round(float(v), 3) for v in axle], "r", round(float(r), 3), "cut", round(float(cut), 3),
+              "faces", len(w.data.polygons))
 
 
 def flatten_stripes(ob, max_lift=0.031):
@@ -177,9 +244,15 @@ for name, (pat, faces, scale, turn, tex, flat) in MODELS.items():
         for n in m.node_tree.nodes:
             if n.type == "BSDF_PRINCIPLED":
                 n.inputs["Emission Strength"].default_value = 0  # or the unlinked emission glows white
-    for img in bpy.data.images:
+    if name in WHEELS:
+        bpy.ops.object.select_all(action="DESELECT")
+        ob.select_set(True)
+        bpy.context.view_layer.objects.active = ob
+        cut_wheels(ob, WHEELS[name])
+    for img in list(bpy.data.images):  # a copy: renaming reorders bpy.data.images
         if img.size[0] > tex:
             img.scale(tex, tex)
+        img.name = f"{name}_{img.name}"  # export_web.py keeps the vehicles' 2048 px textures by this prefix
     print("PREP", name, len(ob.data.polygons), "faces", "size", [round(v, 2) for v in (hi - lo)])
     bpy.ops.export_scene.gltf(filepath=os.path.join(out, f"{name}.glb"), export_format="GLB", export_animations=False,
                               export_image_format="JPEG", export_jpeg_quality=85)

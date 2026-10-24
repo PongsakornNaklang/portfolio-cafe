@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { cards, site, drinks } from "./content.js?v=15";
-import { createSound, createStreetLife } from "./life.js?v=17";
+import { createSound, createStreetLife } from "./life.js?v=18";
 
 // ---------------------------------------------------------------- time of day (visitor's clock; ?time=night to test)
 const PRESETS = {
@@ -236,7 +236,8 @@ function hotspotAt(x, y) {
 const onScene = (e) => e.target === renderer.domElement;
 addEventListener("pointermove", (e) => {
   const o = onScene(e) ? hotspotAt(e.clientX, e.clientY) : null;
-  renderer.domElement.style.cursor = o ? "pointer" : "";
+  // a hand that grabs the view wherever you can drag to look around; the pointing hand on things you can tap
+  renderer.domElement.style.cursor = gaze.drag && gaze.moved ? "grabbing" : o ? "pointer" : !director || seated ? "grab" : "";
   tip.style.opacity = o ? 1 : 0;
   if (o) {
     const k = o.userData.hotspot;
@@ -676,8 +677,10 @@ addEventListener("pointermove", (e) => {
   if (!gaze.drag) return;
   const dx = e.clientX - gaze.drag.x, dy = e.clientY - gaze.drag.y;
   if (Math.abs(dx) + Math.abs(dy) > 4) gaze.moved = true;
-  gaze.yaw = THREE.MathUtils.clamp(gaze.yaw + dx * 0.004, -2.4, 2.4);
-  gaze.pitch = THREE.MathUtils.clamp(gaze.pitch + dy * 0.003, -0.6, 0.7);
+  // how far you can turn: a glance on the street (the shop stays in view), most of the room when seated
+  const [yaw, up, down] = seated ? [1.75, 0.45, 0.5] : [0.52, 0.26, 0.26]; // ±100° / ±30°; up/down ±26° / ±15°
+  gaze.yaw = THREE.MathUtils.clamp(gaze.yaw + dx * 0.004, -yaw, yaw);
+  gaze.pitch = THREE.MathUtils.clamp(gaze.pitch + dy * 0.003, -down, up);
   gaze.drag = { x: e.clientX, y: e.clientY };
 });
 addEventListener("pointerup", () => { gaze.drag = null; });

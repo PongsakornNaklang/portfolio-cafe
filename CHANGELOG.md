@@ -6,15 +6,19 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 
 ### Added
 - After ordering, pick any seat: the corner table, the stools at the middle table, the window bench, or the plastic chair outside.
-- Drag to look around, on the street and while seated. On a phone a sideways swipe turns your head and an up/down swipe still walks; your view eases back to straight ahead as you walk.
+- Drag to look around, on the street and while seated: a glance of up to 30° either way on the street (the shop stays in view), up to 100° when seated. The cursor is an open hand where you can drag and closes while you drag. On a phone a sideways swipe turns your head and an up/down swipe still walks; your view eases back to straight ahead as you walk.
 - Change seat while seated; your drink comes with you.
 - Finish your drink and order another without leaving your seat.
 - A slurp when you sip, with a rattle on the last one.
 - Tap the vinyl shelf to pick a record: two lofi tracks (CC0, by omfgdude) or the shop's own tape.
 - A yellow project book on the centre table: tap it to flip through the projects, about and contact, page by page.
 - A ginger shop cat naps on a shell chair in the corner (a Meshy model, its raised stripes flattened into the fur). It breathes slowly; tap it to pet it and it purrs. That chair is no longer a seat, but you can sit next to it.
+- The tuk-tuk's and taxi's wheels turn as they drive: cut out of the Meshy models by `prep_meshy.py`, each spinning on its own axle.
 - Tap a passing tuk-tuk or taxi: beep beep, then the dog barks or the cat meows. Tap a myna on the wire and the birds nearby fly off.
 - The character waves with a little "huh!" at the tour's "That's me" step and whenever he says hello.
+
+### Changed
+- The tuk-tuk and taxi are much closer to the Meshy originals: about 50k faces and 2048 px paint each (was 20-25k and 1024 px), so the panels are smooth and the paint sharp. The page download grows by about 4 MB.
 
 ### Fixed
 - Cars and tuk-tuks keep driving past while you're inside or seated, not only on the street.
