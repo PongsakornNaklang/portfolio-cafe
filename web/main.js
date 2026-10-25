@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { cards, site, drinks } from "./content.js?v=31";
+import { cards, site, drinks } from "./content.js?v=32";
 import { createSound, createStreetLife } from "./life.js?v=25";
 import { startBoard, legalMoves, play, botMove } from "./checkers.js?v=1";
 import { COLORS, newDeck, shuffle, canPlay, goesAgain, penalty, botPick, botColor } from "./uyes.js?v=1";
@@ -563,6 +563,7 @@ addEventListener("click", (e) => {
       body: d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) }, r);
   }
   if (key === "about") {
+    if (brewing) return; // busy making your drink
     wave();
     const acts = [{ label: "☕ Order a drink", run: () => drinkMenu(r) },
       { label: "📖 See my portfolio", run: (btn) => { const from = btn.getBoundingClientRect(); closeBubble(); openBook(from); } }];
@@ -571,7 +572,7 @@ addEventListener("click", (e) => {
     if (musicOn()) acts.push({ label: dancing ? "✋ Stop dancing" : "🕺 Dance", egg: true, run: () => { dancing = !dancing; foundEgg("dance"); closeBubble(); } });
     return aboutBubble(acts, r);
   }
-  if (key === "tip") wave(); // he waves a thank-you
+  if (key === "tip" && !brewing) wave(); // he waves a thank-you
   const c = cards[key];
   if (c) showBubble(c, r);
 });
@@ -1211,6 +1212,7 @@ const danceLen = legLen[0] + legLen[1], routeLen = legLen.reduce((a, b) => a + b
 const PLATFORM = 0.65, FLOOR = 0.2; // feet height on the platform behind the counter, and on the shop floor
 const WALK_SPEED = 1.3; // m/s: the clip's stride (0.64 m a step in 0.68 s, at hips 0.86 m; his are 1.25 m), so his feet don't slide
 let walkS = 0, walkAmt = 0, sitAmt = 0;
+let barX = 0, barTo = 0; // making a drink: how far along the counter he's gone to its machine (x from his spot)
 function routeAt(s) { // point and heading at distance s along the route
   for (let i = 1; i < ROUTE.length; i++) {
     const a = ROUTE[i - 1], b = ROUTE[i], d = a.distanceTo(b);
@@ -1219,10 +1221,13 @@ function routeAt(s) { // point and heading at distance s along the route
   }
 }
 function strollToRecords(dt) {
-  const target = game ? routeLen : dancing ? danceLen : 0, step = WALK_SPEED * dt;
+  const target = barTo || barX ? 0 : game ? routeLen : dancing ? danceLen : 0, step = WALK_SPEED * dt; // at the bar: stay home
   const moving = Math.abs(target - walkS) > 0.001;
   walkS += THREE.MathUtils.clamp(target - walkS, -step, step);
+  const sliding = barX !== barTo && walkS < 0.001; // along the counter, once he's home
+  if (sliding) barX = Math.abs(barTo - barX) <= step ? barTo : barX + Math.sign(barTo - barX) * step;
   const { p, dir } = routeAt(walkS);
+  p.x += barX;
   // off the platform's back edge (z -2.15) and down to the floor by z -2.45
   p.y = THREE.MathUtils.lerp(PLATFORM, FLOOR, THREE.MathUtils.clamp((-2.15 - p.z) / 0.3, 0, 1));
   me.position.copy(p);
@@ -1230,11 +1235,12 @@ function strollToRecords(dt) {
   // counter once you're through the door, or the board when he's come over to play
   const atBoard = game && walkS > routeLen - 0.01;
   const heading = moving ? Math.atan2(dir.x, dir.z) + (target < walkS ? Math.PI : 0)
+    : sliding ? Math.sign(barTo - barX) * Math.PI / 2 : barX ? 0 // at a machine: face it
     : atBoard ? Math.atan2(CK.centre.x - p.x, CK.centre.z - p.z) : inProgress > 0.45 && !dancing ? PICKUP_HEADING : 0; // dancing: out to the shop front
   let turn = heading - me.rotation.y;
   turn = Math.atan2(Math.sin(turn), Math.cos(turn)); // the short way round
   me.rotation.y += turn * Math.min(1, dt * 8);
-  walkAmt += ((moving ? 1 : 0) - walkAmt) * Math.min(1, dt * 8);
+  walkAmt += ((moving || sliding ? 1 : 0) - walkAmt) * Math.min(1, dt * 8);
   sitAmt += ((atBoard ? 1 : 0) - sitAmt) * Math.min(1, dt * 4); // at the board he sits down
   me.position.y += SIT.dy * sitAmt;
 }
@@ -1247,7 +1253,7 @@ function animateDance(dt) {
 }
 
 function animateCharacter(dt) {
-  if (progress > 0.85 && !waved) { waved = true; wave(); greet(); }
+  if (progress > 0.85 && !waved && !brewing) { waved = true; wave(); greet(); }
   if (progress < 0.5) waved = false; // walk away and back to get another hello
   strollToRecords(dt);
   animateDance(dt);
@@ -1275,11 +1281,13 @@ function animateCharacter(dt) {
   const gt = gest ? (performance.now() - gest.t0) / 1000 : 0;
   if (gest && gt > gest.dur) gest = null;
   const gw = gest ? THREE.MathUtils.clamp(Math.min(gt / 0.3, (gest.dur - gt) / 0.4), 0, 1) * stand : 0;
-  const at = gw && gest.at;
   forward.set(Math.sin(me.rotation.y), 0, Math.cos(me.rotation.y));
   headBone.getWorldPosition(_hp);
+  // making your drink: head down over the counter in front of him
+  const bent = brewing === true && barTo && barX === barTo; // at the machine, making it
+  const at = (gw && gest.at) || (bent && _brewAt.copy(_hp).addScaledVector(forward, 0.4).setY(_hp.y - 0.8));
   _dir.subVectors(at || camera.position, _hp).normalize();
-  if (at) _dir.setY(THREE.MathUtils.clamp(_dir.y, -0.3, 0.4)).normalize(); // a glance down, not chin on chest
+  if (at) _dir.setY(THREE.MathUtils.clamp(_dir.y, bent ? -0.7 : -0.3, 0.4)).normalize(); // a glance down, not chin on chest (unless he's working)
   _q.setFromUnitVectors(forward, _dir);
   // turns further once you're inside; walking or dancing, his head follows the move instead
   look.slerp(new THREE.Quaternion().rotateTowards(_q, D(at ? 75 : 30 + 35 * inProgress) * Math.max(0, 1 - walkAmt - danceAmt)), 0.08);
@@ -1369,7 +1377,7 @@ function gesturePose(t, w, talk) {
   }
 }
 const MOOD_S = 4.5, PALM_IN = D(90); // arms up: roll the forearms so the palms face in
-const _left = new THREE.Vector3(), _aim = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3();
+const _brewAt = new THREE.Vector3(), _left = new THREE.Vector3(), _aim = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3();
 const _mq = new THREE.Quaternion(), _mp = new THREE.Quaternion();
 function turnWorld(bone, q) { // rotate a bone by q given in world space
   bone.parent.getWorldQuaternion(_mp);
@@ -1467,14 +1475,44 @@ function order(d) {
   myDrink?.parent?.remove(myDrink); // a fresh one: the old one's level doesn't carry over
   myDrink = null;
   bump(`drink:${d.id}`);
-  wave();
   const me = scene.getObjectByName("HOT_character");
   if (d.id === "latte" && !eggs.has("latte")) // a latte, and you've never poured one: he offers you the jug
     return showBubble({ title: `${d.name}, coming right up!`, body: "Want to try pouring one yourself?", actions: [
       { label: "🎨 Pour it myself", egg: true, run: () => startLatte("heart", () => pickSeat(d)) },
-      { label: "Just sit down", run: () => { closeBubble(); pickSeat(d); } }] }, screenRect(me));
-  showBubble({ title: `${d.name}, coming right up!`, body: "Sit anywhere you like." }, screenRect(me), 1800);
-  setTimeout(() => pickSeat(d), 1900);
+      { label: "Just sit down", run: () => { closeBubble(); brew(d, () => pickSeat(d)); } }] }, screenRect(me));
+  showBubble({ title: `${d.name}, coming right up!` }, screenRect(me), 1200);
+  setTimeout(() => brew(d, () => pickSeat(d)), 1300);
+}
+// he walks over to its machine and makes it while you watch, a step every 1.4 s with its sound,
+// then carries it back to the PICKUP and rings the bell
+let brewing = false; // true while he makes it, "served" while he holds it up
+const BAR_X = { matcha: 0.4, thaitea: 0.4 }; // from his spot (x -1.0): the matcha station; the rest at the espresso machine
+function brew(d, then) {
+  brewing = true;
+  dancing = false;
+  barTo = BAR_X[d.id] ?? -1.2;
+  const steps = [...d.steps];
+  (function next() {
+    if (barX !== barTo || walkS > 0.001) return setTimeout(next, 100); // still walking there (or back)
+    if (steps.length) {
+      const [k, text] = steps.shift();
+      uySfx(k);
+      closeBubble();
+      showBubble({ title: `${d.emoji} ${d.name}`, body: text }, screenRect(me));
+      return setTimeout(next, 1400);
+    }
+    if (barTo) { closeBubble(); barTo = 0; return next(); } // made: carry it back
+    uySfx("ding");
+    brewing = "served"; // looks up at you to hand it over
+    // inside, it goes on the PICKUP tray; from the street the counter's out of sight, so he holds it up, toward you
+    const cup = drinkTpl[d.id].clone(true), head = headBone.getWorldPosition(new THREE.Vector3());
+    if (camera.position.z < 0) cup.position.copy(pickup);
+    else cup.position.copy(head).add(camera.position.clone().sub(head).setY(0).setLength(0.32)).setY(head.y - 0.38);
+    scene.add(cup);
+    closeBubble();
+    showBubble({ title: "Here you go!", body: "Sit anywhere you like." }, screenRect(me), 1600);
+    setTimeout(() => { cup.removeFromParent(); brewing = false; then(); }, 1700);
+  })();
 }
 // step back so the whole room shows, and float a pin over every seat: tap one to sit there
 // from: the seat you're moving from (Cancel takes you back to it); null on a fresh order
@@ -2149,7 +2187,7 @@ function uySparks(n = 36) {
     });
   }
 }
-// UYES's sound effects, made in Web Audio like his voice (no sound files); quiet when the sound's off
+// UYES's sound effects, and the coffee bar's, made in Web Audio like his voice (no sound files); quiet when the sound's off
 function uySfx(kind) {
   if (sound.muted) return;
   try {
@@ -2176,6 +2214,13 @@ function uySfx(kind) {
     };
     ({
       play: () => { hiss(3500, 1200, 0.08, 0.35); tone(190, 80, 0.09, 0.25, "sine"); },           // a card slapped down
+      // making a drink (drinks[].steps in content.js), each about 1.3 s
+      grind: () => { for (let i = 0; i < 36; i++) hiss(1600 + Math.random() * 900, 1300, 0.05, 0.14, i * 0.034); }, // beans rattling through
+      shot: () => { tone(55, 58, 1.3, 0.05, "sawtooth"); for (let i = 0; i < 9; i++) tone(1000 + Math.random() * 500, 650, 0.06, 0.05, "sine", 0.25 + i * 0.11); }, // the pump, then drips
+      ice: () => { for (let i = 0; i < 5; i++) { const at = i * 0.12 + Math.random() * 0.04; tone(2600 + Math.random() * 1500, 2300, 0.12, 0.06, "sine", at); hiss(5000, 3000, 0.03, 0.15, at); } },
+      pour: () => { for (let i = 0; i < 9; i++) hiss(450 + Math.random() * 250, 750, 0.18, 0.13, i * 0.1); },
+      whisk: () => { for (let i = 0; i < 12; i++) hiss(2200, 900, 0.09, 0.16, i * 0.1); },
+      ding: () => { tone(1760, 1750, 1.2, 0.12, "sine"); tone(2640, 2630, 0.9, 0.05, "sine"); }, // the bell on the counter
       draw: () => hiss(700, 2600, 0.16, 0.18),                                                       // slid off the deck
       skip: () => { tone(880, 440, 0.1, 0.07, "square"); tone(880, 440, 0.1, 0.07, "square", 0.12); },
       reverse: () => { tone(400, 800, 0.1, 0.08, "square"); tone(800, 400, 0.12, 0.08, "square", 0.11); },
@@ -2715,7 +2760,7 @@ for (const ev of ["pointerdown", "pointermove", "wheel", "scroll", "keydown", "t
 function idleLine() {
   const now = performance.now();
   if (now - idleSince < 10000 || now < nextLineAt || document.hidden) return;
-  if (bubble || game || latte || picking !== null || document.querySelector("dialog[open]") || !document.getElementById("tour").hidden) return;
+  if (bubble || game || latte || brewing || picking !== null || document.querySelector("dialog[open]") || !document.getElementById("tour").hidden) return;
   const fits = lines.filter((l) => holds(l.spot) && !(l.egg && eggs.has(l.egg)));
   const hints = fits.filter((l) => l.egg), plain = fits.filter((l) => !l.egg);
   const pool = (sinceHint >= 2 || !plain.length) && hints.length ? hints : plain; // only hints fit here: hints it is

@@ -41,11 +41,16 @@ export const site = {
 };
 
 // drinks you can order from the character (ids match TPL_drink_* in the 3D scene)
+// steps: how he makes it, one step every 1.4 s: [the sound (grind, shot, ice, pour, whisk), what he says]
 export const drinks = [
-  { id: "latte", name: "Iced latte", emoji: "🧋" },
-  { id: "matcha", name: "Matcha latte", emoji: "🍵" },
-  { id: "thaitea", name: "Thai tea", emoji: "🧡" },
-  { id: "espresso", name: "Espresso", emoji: "☕" },
+  { id: "latte", name: "Iced latte", emoji: "🧋",
+    steps: [["grind", "Grinding the beans…"], ["shot", "Pulling a shot…"], ["ice", "Ice in…"], ["pour", "Milk on top…"]] },
+  { id: "matcha", name: "Matcha latte", emoji: "🍵",
+    steps: [["whisk", "Whisking the matcha…"], ["ice", "Ice in…"], ["pour", "Milk on top…"]] },
+  { id: "thaitea", name: "Thai tea", emoji: "🧡",
+    steps: [["pour", "Pulling the tea…"], ["ice", "Ice in…"], ["pour", "Condensed milk…"]] },
+  { id: "espresso", name: "Espresso", emoji: "☕",
+    steps: [["grind", "Grinding the beans…"], ["shot", "Pulling a shot…"]] },
 ];
 
 export const cards = {
