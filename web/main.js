@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { cards, site, drinks, drivers } from "./content.js?v=33";
+import { cards, site, drinks, drivers } from "./content.js?v=34";
 import { createSound, createStreetLife } from "./life.js?v=33";
 import { startBoard, legalMoves, play, botMove } from "./checkers.js?v=1";
 import { COLORS, newDeck, shuffle, canPlay, goesAgain, penalty, botPick, botColor } from "./uyes.js?v=1";
@@ -420,7 +420,7 @@ function placeCamera() {
   camera.updateProjectionMatrix();
   const hint = document.getElementById("hint");
   hint.textContent = t > 0.9 && doorOpen ? "Scroll to step inside ↓" : "Scroll to walk to the shop ↓";
-  const off = !!(director || (t > 0.9 && !doorOpen) || u > 0.95);
+  const off = !!(director || ride || (t > 0.9 && !doorOpen) || u > 0.95); // ride: scrolling's locked while a car waits for you
   hint.style.opacity = off ? 0 : 1;
   if (hint.inert !== off) hint.inert = off; // hidden: no taps, and out of the tab order
 }
@@ -1646,19 +1646,31 @@ function standUp() {
   document.getElementById("seatbar").hidden = true;
 }
 
-// ---------------------------------------------------------------- ride along: double-tap a passing car, it stops and you get
-// in the back; it goes round the street (life.js) and the driver chats, till you ask to get out at the shop
+// ---------------------------------------------------------------- ride along (an easter egg): double-tap a passing car, it stops
+// and the driver asks if you want a ride; hop in and you sit in the back while it goes round the street (life.js) and the
+// driver chats, till you ask to get out at the shop
 let ride = null, lastHonk = {}; // ride: { d: the driver (content.js drivers), next: when they next say something }
 function hail(o) {
   if (ride || director || latte || brewing) return life.poke(o); // something else has the camera (a seat, a game, the tour)
-  const got = life.hail(o, board);
+  const got = life.hail(o, offer);
   if (!got) return life.poke(o); // too far along, or turning: just the horn
   closeBubble();
   sound.honk(1);
   ride = { d: drivers[got.kind], head: got.head, next: Infinity };
   lockScroll(true);
 }
-function board() { // it's stopped: in you get
+function offer() { // it's pulled up: want a ride?
+  ride.asking = true;
+  showBubble({ title: "", body: ride.d.ask, actions: [
+    { label: `${ride.d.icon} Hop in`, egg: true, run: () => { closeBubble(); ride.asking = false; foundEgg("ride"); board(); } },
+    { label: "No thanks", run: () => closeBubble() }] }, screenRect(ride.head)); // closed any way but Hop in: it drives on
+}
+function decline() {
+  ride = null;
+  life.release();
+  lockScroll(false);
+}
+function board() { // in you get
   gaze.yaw = gaze.pitch = 0;
   renderer.domElement.style.touchAction = "none";
   const s = life.seat();
@@ -1668,7 +1680,8 @@ function board() { // it's stopped: in you get
   setTimeout(() => life.go(), 1200); // off we go once you're sat down
 }
 function followRide(dt) {
-  if (!director?.base) return; // still pulling up
+  if (ride.asking && !bubble) return decline();
+  if (!director?.base) return; // still pulling up, or asking
   const s = life.seat();
   director.pos = s.pos;
   director.base = s.ahead;
