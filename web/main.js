@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { cards, site, drinks, drivers } from "./content.js?v=34";
-import { createSound, createStreetLife } from "./life.js?v=33";
+import { cards, site, drinks, drivers } from "./content.js?v=35";
+import { createSound, createStreetLife } from "./life.js?v=35";
 import { startBoard, legalMoves, play, botMove } from "./checkers.js?v=1";
 import { COLORS, newDeck, shuffle, canPlay, goesAgain, penalty, botPick, botColor } from "./uyes.js?v=1";
 import { surface as latteSurface, draw as drawLatte, reset as resetLatte, pourStep, jugLeft, toGrid, quip, score as latteScore } from "./latte.js?v=6";
@@ -532,7 +532,7 @@ function aboutBubble(actions, r) {
 }
 addEventListener("click", (e) => {
   if (gaze.moved) return; // that was a drag to look around
-  if (ride && onScene(e)) return; // riding: just the view
+  if (ride && onScene(e)) return tapDriver(e); // riding: only the driver
   if (game && onScene(e)) return game.uyes ? uyesClick(e) : boardClick(e);
   if (latte && onScene(e)) return; // pouring, not tapping things
   if (bubble?.dataset.idle && bubble.contains(e.target)) return closeBubble(); // tap what he said to put it away
@@ -1662,7 +1662,7 @@ function hail(o) {
 function offer() { // it's pulled up: want a ride?
   ride.asking = true;
   showBubble({ title: "", body: ride.d.ask, actions: [
-    { label: `${ride.d.icon} Hop in`, egg: true, run: () => { closeBubble(); ride.asking = false; foundEgg("ride"); board(); } },
+    { label: `${ride.d.icon} Hop in`, egg: true, run: () => { closeBubble(); ride.asking = false; foundEgg("ride"); sound.thunk(); board(); } },
     { label: "No thanks", run: () => closeBubble() }] }, screenRect(ride.head)); // closed any way but Hop in: it drives on
 }
 function decline() {
@@ -1675,9 +1675,23 @@ function board() { // in you get
   renderer.domElement.style.touchAction = "none";
   const s = life.seat();
   director = { pos: s.pos, base: s.ahead, fov: 70, k: 0.05 };
-  showSeatBar(`${ride.d.icon} ${ride.d.name}`, "Drag to look around", "Get out", getOut);
+  showSeatBar(`${ride.d.icon} ${ride.d.name}`, "Tap the driver · drag to look around", "Get out", getOut);
   rideSay(ride.d.hello);
   setTimeout(() => life.go(), 1200); // off we go once you're sat down
+}
+// tap the driver while you ride: faster or slower, and in a tuk-tuk, a wheelie
+function tapDriver(e) {
+  if (ride.asking || !director?.base || document.getElementById("seat-leave").hidden) return; // not till you're in, nor on the way back
+  ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  if (ray.ray.distanceToPoint(ride.head.getWorldPosition(_v)) > 0.4) return; // missed them
+  const d = ride.d, say = (text, run) => () => { closeBubble(); run(); rideSay(text); };
+  closeBubble();
+  showBubble({ title: "", body: d.menu, actions: [
+    { label: "⏩ Faster", run: say(d.fast, () => life.pace(1.6)) },
+    { label: "🐢 Slower", run: say(d.slow, () => life.pace(0.55)) },
+    ...(d.wheelie ? [{ label: "🛺 Wheelie!", egg: true, run: say(d.wheelie, () => { life.popWheelie(); sound.play("dog", { volume: 0.9 }); foundEgg("wheelie"); }) }] : [])] },
+  screenRect(ride.head));
 }
 function followRide(dt) {
   if (ride.asking && !bubble) return decline();
@@ -1706,6 +1720,7 @@ function getOut() {
 }
 function stepOut() {
   closeBubble();
+  sound.thunk();
   ride = null;
   life.release(); // off it drives
   progress = 1; inProgress = 0; // straight to the window, not back out through the shop if you got in from inside

@@ -27,7 +27,7 @@ A portfolio built as a tiny 3D Bangkok shop. You scroll to walk across the stree
 | Lamps | Switch each light on/off |
 | Red mailbox | Contact links |
 | 7-Eleven across the road | The door chime |
-| Passing taxi or tuk-tuk | A beep; double-tap it and it stops, the driver asking if you want a ride: hop in and ride in the back while they chat, then "Get out" drops you at the shop |
+| Passing taxi or tuk-tuk | A beep; double-tap it and it stops, the driver asking if you want a ride: hop in and ride in the back while they chat (tap the driver: faster, slower, or a wheelie in the tuk-tuk), then "Get out" drops you at the shop |
 | Mynas on the wire | Shoo them off |
 
 Some things are left for you to find: pouring your own latte art, a game of checkers (หมากฮอส) at the centre table, and two secret records.

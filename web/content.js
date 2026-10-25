@@ -61,13 +61,16 @@ export const drivers = {
     hello: "Seatbelt on. Off we go!",
     lines: ["Meter's off. This one's on the house.", "Mind the fur on the seat.", "That coffee shop back there? Best iced latte on the street.",
       "I only brake for fish and fares.", "Purr… sorry, the engine and I hum together.", "Quiet street today. Just how I like it."],
-    back: "Back to NAKANG? Coming right up.", bye: "Here we are. Watch your step!" },
+    back: "Back to NAKANG? Coming right up.", bye: "Here we are. Watch your step!",
+    // tap them while you ride: what they say first, and to faster / slower
+    menu: "Mrrp? Need something?", fast: "Hold on to your whiskers!", slow: "Nice and easy. Enjoy the view." },
   dog: { name: "Tuk-tuk dog", icon: "🛺",
     ask: "Tuk-tuk! Want a ride?",
     hello: "Hold on tight! Tuk-tuks don't do slow.",
     lines: ["Wind in your ears! Best part of the job.", "I'd wag, but I need both paws on the wheel.", "Smell that? Somebody's grilling moo ping.",
       "Beep beep! That's tuk-tuk for hello.", "We'll pass the shop again in a sec. Wave to Bankza!", "Round and round. I never get tired of it."],
-    back: "To the shop? You got it!", bye: "NAKANG! Say hi to Bankza for me." },
+    back: "To the shop? You got it!", bye: "NAKANG! Say hi to Bankza for me.",
+    menu: "Woof? What's up?", fast: "Zoom zoom!", slow: "Slow and steady, got it.", wheelie: "Woohoo! Watch this!" }, // wheelie: tuk-tuks only
 };
 
 export const cards = {

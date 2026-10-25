@@ -57,6 +57,37 @@ export function createSound() {
     }
   }
   // the 7-Eleven door chime every Thai knows: a high "ding", a low "dong", each a bell that rings out
+  // a car pulling up for you: a short squeal of brakes
+  function squeal(volume = 0.035) {
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    for (const f of [2150, 2230]) {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sawtooth";
+      o.frequency.setValueAtTime(f, t);
+      o.frequency.linearRampToValueAtTime(f * 0.88, t + 0.55); // dropping as it slows
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(volume, t + 0.05);
+      g.gain.linearRampToValueAtTime(0, t + 0.6);
+      o.connect(g).connect(outside);
+      o.start(t);
+      o.stop(t + 0.65);
+    }
+  }
+  // getting in or out: a door shutting, a dull thunk (low noise, quickly gone)
+  function thunk(volume = 0.5) {
+    if (!ctx) return;
+    const t = ctx.currentTime, len = 0.25;
+    const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * len), ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.035));
+    const src = ctx.createBufferSource(), lp = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = buf;
+    lp.type = "lowpass";
+    lp.frequency.value = 220;
+    g.gain.value = volume;
+    src.connect(lp).connect(g).connect(outside);
+    src.start(t);
+  }
   function chime(volume = 0.12) {
     if (!ctx) return;
     const t = ctx.currentTime;
@@ -98,7 +129,7 @@ export function createSound() {
     lfo.stop(t + len);
   }
   return {
-    start, play, honk, slurp, chime,
+    start, play, honk, slurp, chime, squeal, thunk,
     // k = 0: out on the street; 1: indoors with the door shut (street sounds quiet and dull, like through glass)
     muffle(k) {
       if (!ctx || Math.abs(k - (this.k ?? 0)) < 0.01) return; // called every frame: only schedule real changes
@@ -185,11 +216,12 @@ export function createStreetLife({ scene, camera, sound, night = false }) {
     scene.add(o);
     const wheels = []; // cut out of the Meshy model by prep_meshy.py, origin on the axle
     o.traverse((c) => { if (/^wheel_/.test(c.name)) wheels.push({ c, r: new THREE.Box3().setFromObject(c).getSize(new THREE.Vector3()).y / 2 }); });
-    const loop = sound.play(spec.sound, { loop: true, volume: 0, rate: spec.rate * rand(0.92, 1.08) });
+    const rate = spec.rate * rand(0.92, 1.08);
+    const loop = sound.play(spec.sound, { loop: true, volume: 0, rate });
     const beam = night ? headlights(o, spec) : null;
     const len = new THREE.Box3().setFromObject(tpl[kind]).getSize(new THREE.Vector3()).x / 2; // half its length, nose to tail
     const v = rand(...spec.speed);
-    actors.push({ type: "vehicle", o, dir, v, cruise: v, len, spec, loop, seed: rand(0, 9), wheels, beam });
+    actors.push({ type: "vehicle", o, dir, v, cruise: v, v0: v, rate, len, spec, loop, seed: rand(0, 9), wheels, beam });
   }
 
   // ---------------------------------------------------------------- mynas: fly in, perch on a power line, fly off
@@ -230,7 +262,11 @@ export function createStreetLife({ scene, camera, sound, night = false }) {
         drive(a, dt);
         for (const w of a.wheels) w.c.rotation.z -= (a.v * dt) / w.r; // roll: the model drives along its own +X
         o.position.y = Math.abs(Math.sin(time * 9 + a.seed)) * 0.025; // a little road bounce (the Meshy models are one piece: no wheels to spin)
-        if (a.loop) a.loop.gain.gain.value = a.spec.vol * near(o.position, camera);
+        if (a.wheelie) wheelie(a, dt);
+        if (a.loop) { // louder near you; the engine's pitch follows its speed (ticking over when stopped), revving for a wheelie
+          a.loop.gain.gain.value = a.spec.vol * near(o.position, camera);
+          a.loop.src.playbackRate.value = a.rate * (0.65 + 0.35 * a.v / a.v0) * (1 + 0.4 * (a.rev || 0));
+        }
         o.visible = a === ride?.a || Math.abs(o.position.z - camera.position.z) > 2.2 || camera.position.z > 12; // never through the lens
         done = a !== ride?.a && Math.abs(o.position.x) > 27;
         if (a.beam) { // from the lamps, ahead and down onto the road
@@ -318,14 +354,34 @@ export function createStreetLife({ scene, camera, sound, night = false }) {
     head.position.set(...a.spec.head);
     o.add(head);
     ride = { a, hold: true, onStop };
+    sound.squeal();
     return { kind: a.spec.driver[0] === "dog" ? "dog" : "cat", head };
   }
   function seat() { // where you sit, and which way is ahead (from this frame's position, not last frame's matrix)
     const o = ride.a.o;
     return { pos: new THREE.Vector3(...ride.a.spec.seat).applyEuler(o.rotation).add(o.position), ahead: new THREE.Vector3(1, -0.1, 0).applyEuler(o.rotation) };
   }
+  // you asked the driver to go faster or slower: k times its own speed (it still keeps its distance)
+  function pace(k) { ride.a.cruise = ride.a.v0 * k; }
+  // the tuk-tuk pops a wheelie: nose up on its back axle for a couple of seconds, a wobble at the top, then back down
+  function popWheelie() {
+    const a = ride.a;
+    if (a.wheelie) return;
+    const o = a.o, back = Math.min(...a.wheels.map((w) => o.worldToLocal(w.c.getWorldPosition(new THREE.Vector3())).x));
+    a.wheelie = { t: 0, back };
+  }
+  function wheelie(a, dt) {
+    const w = a.wheelie, T = 2.4;
+    w.t += dt;
+    const up = Math.min(1, w.t / 0.35, (T - w.t) / 0.45); // up fast, down a touch slower
+    const tilt = Math.max(0, up) * (0.32 + 0.04 * Math.sin(w.t * 9)); // radians, with a wobble while it balances
+    a.rev = Math.max(0, up);
+    a.o.rotation.z = tilt; // the model faces its own +X: +Z rotation lifts the nose
+    a.o.position.y += -w.back * Math.sin(tilt); // pivot on the back wheels, so they stay on the road
+    if (w.t >= T) { a.o.rotation.z = 0; a.wheelie = null; a.rev = 0; }
+  }
   function go() { if (ride && !ride.out) ride.hold = false; } // (not if you've already been dropped off)
-  function release() { ride = null; }
+  function release() { ride.a.cruise = ride.a.v0; ride = null; } // its own speed again as it drives off
   function dropOff(x, onOut) { Object.assign(ride, { dropX: x, onOut }); }
   function flyOff(a) {
     a.state = "out"; a.t = 0;
@@ -343,5 +399,5 @@ export function createStreetLife({ scene, camera, sound, night = false }) {
       for (const b of actors) if (b.type === "bird" && b.state === "perch" && b.o.position.distanceTo(o.position) < 4) flyOff(b);
     }
   }
-  return { update, poke, hail, seat, go, dropOff, release };
+  return { update, poke, hail, seat, go, dropOff, release, pace, popWheelie };
 }
