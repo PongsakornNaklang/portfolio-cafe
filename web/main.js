@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { cards, site, drinks } from "./content.js?v=25";
+import { cards, site, drinks } from "./content.js?v=30";
 import { createSound, createStreetLife } from "./life.js?v=25";
 import { startBoard, legalMoves, play, botMove } from "./checkers.js?v=1";
 
@@ -300,6 +300,44 @@ async function loadBoard() { // true if a newer picture went up
   } catch (e) { console.warn("Couldn't load the guestbook board:", e); return false; }
 }
 loadBoard();
+// the tip jar's QR and Ko-fi link: the settings table in the database (db/settings.sql), through api/settings.js
+fetch("/api/settings").then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))).then((s) => {
+  const pics = [["promptpay", "PromptPay"], ["truemoney", "TrueMoney"], ["alipay", "Alipay"]]
+    .filter(([k]) => /^data:image\/(png|jpeg|webp);base64,/.test(s[`tip_qr_${k}`] ?? ""))
+    .map(([k, label]) => ({ label, src: s[`tip_qr_${k}`], alt: `${label} QR code for tips` }));
+  const kofi = /^https:\/\//.test(s.kofi_url ?? "") ?
+    [{ label: "Ko-fi", note: "Card or PayPal, from anywhere.", go: "☕ Tip on Ko-fi", run: () => { closeBubble(); openKofi(s.kofi_url); } }] : [];
+  if (pics.length + kofi.length) cards.tip.tabs = [...pics, ...kofi];
+}).catch((e) => console.warn("Couldn't load the site settings:", e));
+// Ko-fi's own tip panel, in a window over the shop (its embed URL); closing it re-counts the jar
+function openKofi(url) {
+  const dlg = document.getElementById("kofi"), frame = dlg.querySelector("iframe");
+  const page = url.replace(/\/+$/, "");
+  dlg.querySelector("a").href = page;
+  if (!frame.src) frame.src = `${page}/?hidefeed=true&widget=true&embed=true&preview=true`;
+  dlg.querySelector(".x").onclick = () => dlg.close();
+  dlg.onclick = (e) => { if (e.target === dlg) dlg.close(); }; // tap outside the panel
+  dlg.onclose = loadTips;
+  dlg.showModal();
+}
+// tips from Ko-fi (the tips table, through api/tips.js; its webhook writes them): a coin in the jar for each one,
+// up to 40, and the tip card thanks the latest supporter who made theirs public
+const TIP_BODY = cards.tip.body, tipJar = scene.getObjectByName("HOT_tip_jar"), tipCoin = scene.getObjectByName("HOT_tip_jar_coin_0");
+const tipPile = new THREE.Group();
+tipJar.add(tipPile);
+function loadTips() {
+  fetch("/api/tips", { cache: "no-cache" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))).then(({ count, latest }) => {
+    for (let i = tipPile.children.length; i < Math.min(count, 40); i++) { // a loose pile: round and round, up the jar
+      const c = tipCoin.clone(), a = i * 2.4, r = 0.042 * Math.sqrt(((i % 7) + 0.5) / 7);
+      c.position.set(Math.cos(a) * r, 0.01 + 0.0022 * i, Math.sin(a) * r);
+      c.rotation.set(Math.sin(i * 1.7) * 0.35, i, Math.cos(i * 2.3) * 0.35);
+      tipPile.add(c);
+    }
+    cards.tip.body = TIP_BODY + (count ? ` ☕ ${count} ${count === 1 ? "coffee" : "coffees"} so far.` : "") +
+      (latest ? ` Thanks, ${latest.name}!${latest.message ? ` “${latest.message}”` : ""}` : "");
+  }).catch((e) => console.warn("Couldn't load the tips:", e));
+}
+loadTips();
 
 loaded(100);
 setTimeout(() => loading.classList.add("up"), 250); // a beat at 100%, then the shutter rolls up
@@ -402,7 +440,7 @@ const ndc = new THREE.Vector2();
 const tip = document.getElementById("tip");
 const LABEL = { about: "About me", skills: "Menu", hello: "Say hi", music: "Music on / off", guestbook: "Write on the board",
   contact: "Contact", clock: "What time is it?", lamp: "Light on / off", records: "Pick a record",
-  honk: "Beep beep!", bird: "Shoo!", book: "Open my portfolio", cat: "Pet the cat", chime: "7-Eleven" };
+  honk: "Beep beep!", bird: "Shoo!", book: "Open my portfolio", cat: "Pet the cat", chime: "7-Eleven", tip: "Tip me a coffee" };
 
 function hotspotAt(x, y) {
   ndc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
@@ -452,7 +490,7 @@ function aboutBubble(actions, r) {
 addEventListener("click", (e) => {
   if (gaze.moved) return; // that was a drag to look around
   if (game && onScene(e)) return boardClick(e);
-  if (bubble?.contains(e.target) || e.target.closest?.("#tour, #help, #board, #book, #mute, #seatbar")) return;
+  if (bubble?.contains(e.target) || e.target.closest?.("#tour, #help, #board, #book, #kofi, #mute, #seatbar")) return;
   closeBubble();
   const o = onScene(e) ? hotspotAt(e.clientX, e.clientY) : null;
   if (!o) return;
@@ -485,6 +523,7 @@ addEventListener("click", (e) => {
     if (musicOn()) acts.push({ label: dancing ? "✋ Stop dancing" : "🕺 Dance", egg: true, run: () => { dancing = !dancing; closeBubble(); } });
     return aboutBubble(acts, r);
   }
+  if (key === "tip") wave(); // he waves a thank-you
   const c = cards[key];
   if (c) showBubble(c, r);
 });
@@ -507,8 +546,14 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&
 const cardHTML = (c) =>
   `<h2>${esc(c.title)}</h2>` +
   (c.body ? `<p>${esc(c.body)}</p>` : "") +
+  (c.tabs?.length ? (c.tabs.length > 1 ? `<div class="tabs">${c.tabs.map((t, i) =>
+    `<button class="tab" data-tab="${i}" aria-pressed="${i === 0}">${esc(t.label)}</button>`).join("")}</div>` : "") +
+    `<div class="pane">${paneHTML(c.tabs[0])}</div>` : "") +
   (c.rows ? `<table>${c.rows.map(([a, b]) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join("")}</table>` : "") +
   [].concat(c.link || [], c.links || []).map((l) => `<a class="btn" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)} ↗</a>`).join(" ");
+// a card tab's content: a picture (the tip QRs), or a note and a button
+const paneHTML = (t) => t.src ? `<img class="pic" src="${esc(t.src)}" alt="${esc(t.alt)}">`
+  : `<p>${esc(t.note)}</p><button class="btn" data-go>${esc(t.go)}</button>`;
 // shrink back into the tail and fade, then go (instantly with reduced motion)
 function closeBubble(b = bubble) {
   if (!b) return;
@@ -526,6 +571,14 @@ function showBubble(c, r, ttl = 0) {
     (c.actions ? `<div class="acts">${c.actions.map((a, i) => `<button class="btn${a.egg ? " egg" : ""}" data-act="${i}">${esc(a.label)}</button>`).join("")}</div>` : "");
   document.body.append(bubble);
   bubble.querySelectorAll("[data-act]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); c.actions[+b.dataset.act].run(b); }));
+  const tabs = bubble.querySelectorAll("[data-tab]"), pane = bubble.querySelector(".pane");
+  const show = (t) => { pane.innerHTML = paneHTML(t); const go = pane.querySelector("[data-go]"); if (go) go.onclick = (e) => { e.stopPropagation(); t.run(); }; };
+  if (pane) show(c.tabs[0]);
+  tabs.forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation();
+    show(c.tabs[+b.dataset.tab]);
+    tabs.forEach((t) => t.setAttribute("aria-pressed", t === b));
+  }));
   bubble.querySelector(".x").onclick = () => { closeBubble(); };
   bubble.anchor = r.obj; // re-placed every frame, so it stays on its object while you look around
   placeBubble(bubble, r);
@@ -1592,4 +1645,10 @@ renderer.setAnimationLoop(() => {
   renderer.shadowMap.needsUpdate = frameNo++ % 2 === 0; // moving shadows (him, the cars, the birds) at 30 per second
   renderer.render(scene, camera);
 });
+
+
+
+
+
+
 

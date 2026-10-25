@@ -4,6 +4,11 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+### Added
+- A tip jar on the counter, past the PICKUP tray: a glass jar with a few coins and baht notes and a TIPS tag. Tap it for "Tip me a coffee", with a tab for each way to tip: PromptPay and TrueMoney QRs, and Ko-fi (card or PayPal, from abroad). They come from a new `settings` table (`db/settings.sql`, served by `web/api/settings.js`): `tip_qr_promptpay`, `tip_qr_truemoney` (and `tip_qr_alipay` when there is one) hold the QRs as data URLs and `kofi_url` the link, so any of them can change in the Neon console without a deploy; a tab shows only for what's set. Cards can have tabs (`tabs: [{ label, src, alt } | { label, note, go, run }]`).
+- Ko-fi tips without leaving the shop: "☕ Tip on Ko-fi" opens Ko-fi's own tip panel in a window over the scene (with a link to open it in a new tab).
+- The tip jar fills with real tips: Ko-fi's webhook posts each payment to `web/api/tips.js`, which checks Ko-fi's verification token (`KOFI_VERIFICATION_TOKEN`) and saves it to a new `tips` table (`db/tips.sql`). Each tip adds a coin to the jar (up to 40), the card counts the coffees so far, and thanks the latest supporter who made their tip public, with their message; he waves when you tap the jar. A supporter's email is never kept, and a private tip keeps no name or message. Cards can now show a picture (`img: { src, alt }` in `web/content.js`).
+
 ### Changed
 - Between games the checkers board sits on top of the drinks fridge behind the counter, set up and waiting (just for show: it isn't clickable). Starting a game pops it onto the centre table; when you're done it goes back.
 - Closing the door from inside keeps you inside (it used to walk you back out to the window); walk back toward the shut door and it opens for you. Closing it from outside still steps you back to the window.

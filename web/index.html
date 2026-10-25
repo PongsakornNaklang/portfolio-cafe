@@ -29,6 +29,12 @@
     .bubble[data-tail="none"]::after { display: none; }
     .bubble h2 { margin: 0 0 6px; padding-right: 26px; font: 800 20px/1.1 "Archivo", sans-serif; font-stretch: 125%; }
     .bubble p { margin: 0; }
+    .bubble .tabs { display: flex; justify-content: center; gap: 6px; margin-top: 10px; }
+    .bubble .tab { border: 0; border-radius: 999px; padding: 6px 12px; font: 600 13px "Anuphan", sans-serif; background: #ece5d8; color: inherit; cursor: pointer; }
+    .bubble .tab[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+    .bubble .pane { min-height: 236px; margin-top: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; }
+    .bubble .pic { display: block; width: 220px; max-width: 100%; border-radius: 10px; }
+    .bubble .pane .btn { border: 0; cursor: pointer; padding: 9px 18px; border-radius: 999px; background: var(--sign); color: var(--ink); font: 600 14px "Anuphan", sans-serif; }
     .bubble table { width: 100%; border-collapse: collapse; margin-top: 4px; }
     .bubble td { padding: 5px 0; border-bottom: 1px dashed #d9d3c4; }
     .bubble td + td { text-align: right; color: #7a7266; }
@@ -124,7 +130,13 @@
     @media (max-width: 720px) { #book .pg { padding: 22px 22px 34px; } #book h2 { font-size: 24px; } }
     /* guestbook drawing window */
     #board { border: 0; border-radius: 20px; padding: 16px; background: var(--paper); width: min(760px, calc(100vw - 32px), calc((100dvh - 210px) * 1.5 + 44px)); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
-    #board::backdrop { background: rgba(20,18,16,.45); }
+    #board::backdrop, #kofi::backdrop { background: rgba(20,18,16,.45); }
+    #kofi { border: 0; border-radius: 20px; padding: 0; overflow: hidden; background: #f9f9f9; width: min(420px, calc(100vw - 32px)); height: min(640px, calc(100dvh - 32px)); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+    #kofi[open] { display: flex; flex-direction: column; }
+    #kofi iframe { flex: 1; width: 100%; border: 0; }
+    #kofi .bar { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 8px 16px; font: 600 14px "Anuphan", sans-serif; }
+    #kofi .bar a { color: #7a7266; }
+    #kofi .x { border: 0; background: none; font-size: 22px; line-height: 1; cursor: pointer; padding: 4px 8px; }
     #board h2 { margin: 0 0 4px; font: 800 20px/1.1 "Archivo", sans-serif; font-stretch: 125%; }
     #board p { margin: 0 0 10px; color: #7a7266; font-size: 14px; }
     #board-canvas { display: block; width: 100%; aspect-ratio: 3 / 2; border-radius: 8px; border: 6px solid #c9a46c; touch-action: none; cursor: crosshair; background: #2b4c8c; }
@@ -188,6 +200,10 @@
     <div class="cover"><div class="spread" id="book-spread"><div class="pg left" id="pg-l"></div><div class="pg right" id="pg-r"></div></div></div>
     <div class="tools"><button id="book-prev">← Back</button><button id="book-next">Next →</button></div>
   </dialog>
+  <dialog id="kofi" aria-label="Tip on Ko-fi">
+    <div class="bar"><a target="_blank" rel="noopener">Open Ko-fi in a new tab ↗</a><button class="x" aria-label="Close">×</button></div>
+    <iframe title="Ko-fi tip panel"></iframe>
+  </dialog>
   <dialog id="board" aria-labelledby="board-title">
     <h2 id="board-title">Leave a note</h2>
     <p>Draw or write anything with your mouse or finger, then stick it on the board.</p>
@@ -207,6 +223,6 @@
   <div id="loading" role="progressbar" aria-label="Loading the shop" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
     <div class="sign"><h1>NAKANG</h1><div class="bar"><i></i></div><small>Opening the shop… 0%</small></div>
   </div>
-  <script type="module" src="main.js?v=137"></script>
+  <script type="module" src="main.js?v=142"></script>
 </body>
 </html>

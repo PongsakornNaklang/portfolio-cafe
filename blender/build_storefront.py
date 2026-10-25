@@ -1651,6 +1651,27 @@ def serving_spot(name, loc):
     return g
 
 
+def tip_jar(name, loc):
+    """Tip jar on the L return past the PICKUP tray, label facing the walkway (+X): a glass jar with a few coins and
+    notes in it. Tap it for the "Tip me a coffee" card."""
+    g = empty(name, loc, hotspot="tip")
+    glass = mat("glass", rough=0.05, alpha=0.35)
+    cyl(f"{name}_glass", 0.062, 0.16, (0, 0, 0.08), glass, parent=g, r2=0.058)
+    cyl(f"{name}_rim", 0.06, 0.012, (0, 0, 0.162), glass, parent=g)
+    gold = mat("coin", color="#d9b24a", rough=0.3, metal=0.8)
+    for k, (x, y, z, t) in enumerate(((0.02, -0.015, 0.008, 0), (-0.025, 0.01, 0.008, 0), (0.0, 0.025, 0.02, 25),
+                                      (-0.01, -0.02, 0.022, -30), (0.025, 0.02, 0.03, 40))):
+        cyl(f"{name}_coin_{k}", 0.014, 0.004, (x, y, z), gold, parent=g, bevel=0.001, rot=(t, 0, k * 40))
+    for k, (col, rz) in enumerate((("note_red", 20), ("note_green", -35))):  # a 100 and a 20 baht note, folded in half
+        box(f"{name}_note_{k}", (0.07, 0.004, 0.11), (0.005 * k, 0.012 - 0.024 * k, 0.09), mat(col, color="#c8464a" if k == 0 else "#5f9a5a", rough=0.8),
+            parent=g, bevel=0.001, rot=(0, 8 - 16 * k, rz))
+    tag = empty(f"{name}_tag", (0.064, 0, 0.07), parent=g)
+    box(f"{name}_tag_card", (0.004, 0.075, 0.05), (0, 0, 0), mat("plywood", color="#c9a46c", rough=0.8), parent=tag, bevel=0.001)
+    text(f"{name}_tag_text", "TIPS", 0.022, (0.003, 0, 0), mat("ink", rough=0.6), parent=tag, extrude=0.0005, bevel=0.0003,
+         fonts=SIGN_FONTS, rot=(90, 0, 90), align="CENTER")
+    return g
+
+
 def build_interior():
     use_collection("Interior")
     steel = mat("steel", rough=0.35, metal=0.6)
@@ -1678,6 +1699,7 @@ def build_interior():
         cyl(f"cup_stack_{i}", 0.065, 0.34, (x, 0.5, 1.52), mat("white"), r2=0.055)
     matcha_station("matcha", (-0.62, 0.75, 1.35))
     serving_spot("serve", (-0.15, 1.6, 1.35))
+    tip_jar("HOT_tip_jar", (-0.12, 2.27, 1.35))
 
     # you, behind the counter (placeholder: refine by hand)
     # raised duckboard behind the counter, so your face shows through the window and you don't float

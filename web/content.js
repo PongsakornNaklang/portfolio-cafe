@@ -58,6 +58,11 @@ export const cards = {
     title: "Off the clock",
     rows: [["Old tech & gadgets", ""], ["Graphics", ""], ["Custom keyboards", ""], ["Mid-century home", ""], ["Indoor plants", ""], ["Music", ""], ["Making my own games", ""]],
   },
+  // the tip jar on the counter; its QRs and Ko-fi link come from the database (db/settings.sql)
+  tip: {
+    title: "Tip me a coffee ☕",
+    body: "Enjoyed your visit? Pick a way to tip.",
+  },
   contact: {
     title: "Contact",
     body: "Looking for a full-time role. Have a project in mind, or just want to say hi? Get in touch.",

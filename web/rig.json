@@ -146,6 +146,14 @@
     -2.65
    ]
   },
+  "HOT_tip_jar": {
+   "hotspot": "tip",
+   "pos": [
+    -0.12,
+    1.35,
+    -2.27
+   ]
+  },
   "HOT_wall_lamp": {
    "hotspot": "lamp",
    "pos": [
@@ -163,5 +171,5 @@
    ]
   }
  },
- "glbBytes": 14082296
+ "glbBytes": 14122248
 }
