@@ -1847,32 +1847,103 @@ const UY = (() => {
   count.position.set(0.2, 0.03, -0.26);
   g.add(deck, under, top, mark, fan, count);
   for (const o of [deck, under, top]) o.castShadow = true;
-  return { g, geo, deck, deckTop, under, top, ring, glow, mark, fan, count, cc, popT: 0, lastColor: null, floats: [],
+  return { g, geo, deck, deckTop, under, top, ring, glow, mark, fan, count, cc, popT: 0, lastColor: null, fx: [], shakeT: 0,
     backMat: new THREE.MeshStandardMaterial({ map: uyTex(null), alphaTest: 0.5, roughness: 0.5 }) };
 })();
+// short-lived effects on the table: each runs step(k) every frame as k goes 0 to 1 over dur ms, then goes
+function uyFx(o, dur, step) {
+  UY.g.add(o);
+  UY.fx.push({ o, dur, step, t0: performance.now() });
+}
 // a word that pops up over the table and floats away: "Skip!", "+2", a Wild's colour
 function uyFloat(text, color, at) {
-  const cv = Object.assign(document.createElement("canvas"), { width: 256, height: 96 }), x = cv.getContext("2d");
-  x.font = `800 60px "Archivo", sans-serif`; x.textAlign = "center"; x.textBaseline = "middle"; x.lineJoin = "round";
-  x.lineWidth = 12; x.strokeStyle = "#2b2420"; x.strokeText(text, 128, 50);
-  x.fillStyle = color; x.fillText(text, 128, 50);
+  const cv = document.createElement("canvas"), x = cv.getContext("2d"), font = `800 60px "Archivo", sans-serif`;
+  x.font = font;
+  cv.width = Math.ceil(x.measureText(text).width) + 28; cv.height = 96; // as wide as the word ("Reverse!" is long)
+  x.font = font; x.textAlign = "center"; x.textBaseline = "middle"; x.lineJoin = "round";
+  x.lineWidth = 12; x.strokeStyle = "#2b2420"; x.strokeText(text, cv.width / 2, 50);
+  x.fillStyle = color; x.fillText(text, cv.width / 2, 50);
+  const sw = (0.06 * cv.width) / 96; // the sprite keeps the canvas's shape
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), depthTest: false, transparent: true }));
   s.renderOrder = 10;
-  s.scale.set(0.16, 0.06, 1);
   s.position.copy(at);
-  UY.g.add(s);
-  UY.floats.push({ s, y: at.y, t0: performance.now() });
-}
-function animateUyes(now) { // every frame: the floating words, the colour pop, the deck when you're stuck
-  if (!UY.g.visible) return;
-  UY.floats = UY.floats.filter((f) => {
-    const k = (now - f.t0) / 1100;
-    if (k >= 1) { UY.g.remove(f.s); f.s.material.map.dispose(); f.s.material.dispose(); return false; }
-    f.s.position.y = f.y + 0.05 * k;
-    f.s.material.opacity = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4;
-    f.s.scale.set(0.16, 0.06, 1).multiplyScalar(k < 0.12 ? 0.6 + (k / 0.12) * 0.4 : 1);
-    return true;
+  uyFx(s, 1100, (k) => {
+    s.position.y = at.y + 0.05 * k;
+    s.material.opacity = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4;
+    s.scale.set(sw, 0.06, 1).multiplyScalar(k < 0.12 ? 0.6 + (k / 0.12) * 0.5 : k < 0.22 ? 1.1 - ((k - 0.12) / 0.1) * 0.1 : 1); // pops past full size, settles
   });
+}
+// a card lands: a ring of its colour rushes out across the table
+const UY_RING = new THREE.RingGeometry(0.05, 0.06, 48).rotateX(-Math.PI / 2), UY_SPARK = new THREE.PlaneGeometry(0.008, 0.008);
+function uyWave(color, big = false) {
+  const m = new THREE.Mesh(UY_RING, new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false }));
+  m.position.copy(UY.top.position).setY(0.004);
+  uyFx(m, big ? 700 : 450, (k) => { m.scale.setScalar(1 + k * (big ? 4 : 2.2)); m.material.opacity = 0.9 * (1 - k) ** 2; });
+}
+// a Wild or a +4: sparks of all four colours burst off the pile and fall back
+function uySparks(n = 36) {
+  const at = UY.top.position;
+  for (let i = 0; i < n; i++) {
+    const m = new THREE.Mesh(UY_SPARK,new THREE.MeshBasicMaterial({ color: UY_COL[COLORS[i % 4]], side: THREE.DoubleSide, transparent: true }));
+    const a = Math.random() * Math.PI * 2, sp = 0.25 + Math.random() * 0.35, v = new THREE.Vector3(Math.cos(a) * sp, 0.5 + Math.random() * 0.5, Math.sin(a) * sp);
+    m.position.copy(at).setY(0.01);
+    uyFx(m, 900, (k) => {
+      const t = k * 0.9;
+      m.position.set(at.x + v.x * t, Math.max(0.002, 0.01 + v.y * t - 1.6 * t * t), at.z + v.z * t);
+      m.rotation.set(t * 20, t * 14, 0);
+      m.material.opacity = k < 0.7 ? 1 : (1 - k) / 0.3;
+    });
+  }
+}
+// UYES's sound effects, made in Web Audio like his voice (no sound files); quiet when the sound's off
+function uySfx(kind) {
+  if (sound.muted) return;
+  try {
+    fx ??= new AudioContext();
+    fx.resume();
+    const t = fx.currentTime + 0.01;
+    const tone = (f0, f1, len, vol, type = "triangle", at = 0) => {
+      const o = fx.createOscillator(), g = fx.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(f0, t + at); o.frequency.exponentialRampToValueAtTime(f1, t + at + len);
+      g.gain.setValueAtTime(0.0001, t + at); g.gain.exponentialRampToValueAtTime(vol, t + at + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + at + len);
+      o.connect(g).connect(fx.destination);
+      o.start(t + at); o.stop(t + at + len + 0.02);
+    };
+    const hiss = (f0, f1, len, vol, at = 0) => { // a puff of noise through a sweeping band: a flick, a swish
+      const b = fx.createBuffer(1, Math.ceil(fx.sampleRate * len), fx.sampleRate), d = b.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      const s = fx.createBufferSource(), f = Object.assign(fx.createBiquadFilter(), { type: "bandpass" }), g = fx.createGain();
+      s.buffer = b; f.Q.value = 1.2;
+      f.frequency.setValueAtTime(f0, t + at); f.frequency.exponentialRampToValueAtTime(f1, t + at + len);
+      g.gain.setValueAtTime(vol, t + at); g.gain.exponentialRampToValueAtTime(0.0001, t + at + len);
+      s.connect(f).connect(g).connect(fx.destination);
+      s.start(t + at);
+    };
+    ({
+      play: () => { hiss(3500, 1200, 0.08, 0.35); tone(190, 80, 0.09, 0.25, "sine"); },           // a card slapped down
+      draw: () => hiss(700, 2600, 0.16, 0.18),                                                       // slid off the deck
+      skip: () => { tone(880, 440, 0.1, 0.07, "square"); tone(880, 440, 0.1, 0.07, "square", 0.12); },
+      reverse: () => { tone(400, 800, 0.1, 0.08, "square"); tone(800, 400, 0.12, 0.08, "square", 0.11); },
+      plus: () => { tone(260, 70, 0.35, 0.16, "sawtooth"); hiss(400, 120, 0.3, 0.3); },              // a heavy bonk
+      wild: () => [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, f * 1.01, 0.18, 0.08, "triangle", i * 0.05)),
+      turn: () => { tone(988, 980, 0.18, 0.07, "sine"); tone(1319, 1310, 0.3, 0.06, "sine", 0.09); }, // ding-ding, your go
+      tick: () => tone(1500, 1400, 0.04, 0.05, "square"),
+      caught: () => { tone(140, 110, 0.45, 0.12, "sawtooth"); tone(147, 115, 0.45, 0.1, "sawtooth"); },
+    })[kind]?.();
+  } catch {}
+}
+function animateUyes(now) { // every frame: the table's effects, the colour pop, a shake when you're hit, the deck when you're stuck
+  if (!UY.g.visible) return;
+  UY.fx = UY.fx.filter((f) => {
+    const k = Math.min(1, (now - f.t0) / f.dur);
+    f.step(k);
+    if (k < 1) return true;
+    UY.g.remove(f.o); f.o.material.map?.dispose(); f.o.material.dispose();
+    return false;
+  });
+  const sk = Math.max(0, 1 - (now - UY.shakeT) / 400); // the table jolts under a +2 or +4
+  UY.g.position.set(CK.centre.x + Math.sin(now / 18) * 0.006 * sk, CK.centre.y, CK.centre.z + Math.cos(now / 23) * 0.004 * sk);
   UY.mark.scale.setScalar(1 + 0.6 * (1 - Math.min(1, (now - UY.popT) / 400)) ** 3);
   const G = game?.uyes ? game : null, s = 0.5 + 0.5 * Math.sin(now / 180), mine = G && !G.over && G.turn === 0 && !G.busy;
   const stuck = mine && G.drawn === null && G.picking === null && !G.hands[0].some((c) => canPlay(c, G.pile.at(-1), G.color));
@@ -1881,7 +1952,9 @@ function animateUyes(now) { // every frame: the floating words, the colour pop, 
 const uyHand = document.getElementById("uyes-hand"), uyTurnText = document.getElementById("uyes-turn"), uyClock = document.getElementById("uyes-clock");
 const uySleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const SAYU = { hit: ["Draw up! 😏", "Sorry, not sorry.", "Take that."], ouch: ["Hey!", "Ugh, really?", "Rude."],
-  again: ["My go again.", "Skip! 😄"], pass: ["Pass.", "Nothing. Pass."] };
+  again: ["My go again.", "Skip! 😄"], pass: ["Pass.", "Nothing. Pass."],
+  lost: ["Nooo! Rematch?", "You got lucky. 😤", "Okay, okay. Well played."], // he lost
+  won: ["UYES! Too easy. 😎", "Better luck next time!", "Another round? I'll go easy. Maybe."] };
 const sayU = (k) => SAYU[k][Math.floor(Math.random() * SAYU[k].length)];
 function uyesMenu(r) {
   showBubble({ title: "UYES", body: "A round of UYES with me? Match the colour or the number, and say UYES! when you're down to one card.",
@@ -1936,7 +2009,11 @@ function uyDraw(p, n) { // p: 0 you, 1 him; an empty deck is the pile reshuffled
     if (!G.deck.length) break;
     G.hands[p].push(G.deck.pop());
     // not the deal: each card flies off the deck to whoever drew it, one after another
-    if (G.pile.length) setTimeout(() => game === G && uyFly(null, UY.deck.position.clone().setY(UY.deck.scale.y + 0.004), UY_SIDE[p], p ? -0.6 : 0.6), k * 140);
+    if (G.pile.length) setTimeout(() => {
+      if (game !== G) return;
+      uySfx("draw");
+      uyFly(null, UY.deck.position.clone().setY(UY.deck.scale.y + 0.004), UY_SIDE[p], p ? -0.6 : 0.6);
+    }, k * 140);
   }
   if (G.pile.length) uyTable();
   if (G.pile.length && n > 1) uyFloat(`+${n}`, "#ff5a3c", new THREE.Vector3(0, 0.06, p ? -0.26 : 0.14)); // a penalty, on the side that takes it
@@ -1974,6 +2051,12 @@ function uyFly(card, a, b, spin) { // a card flies from a to b (null: face down)
     UY.g.remove(m); m.material.dispose(); done();
   })(t0));
 }
+function uyFlash(color) { // the screen's edges flash: you've been hit
+  const el = Object.assign(document.createElement("div"), { className: "uy-flash" });
+  el.style.setProperty("--c", color);
+  document.body.append(el);
+  el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 500, easing: "ease-out" }).finished.then(() => el.remove());
+}
 function uyHis(text) { // a line from him in the bar for a couple of seconds, with his voice
   const G = game;
   G.hint = `Bankza: ${text}`;
@@ -1992,11 +2075,22 @@ async function uyPlay(p, i, color) {
   G.pile.push(card);
   G.color = card.c ?? color;
   uyTable();
-  feedback(UY.top, false); // a slap as it lands
+  // it lands with a slap and a ring of its colour; the action cards each have their own sting
+  const pen = penalty(card);
+  navigator.vibrate?.(pen ? [20, 40, 30] : 12);
+  uySfx("play");
+  uyWave(UY_COL[G.color], !!pen || !card.c);
+  if (card.v === "skip" || card.v === "reverse") setTimeout(() => uySfx(card.v), 90);
+  if (!card.c) { uySparks(); setTimeout(() => uySfx("wild"), 60); }
+  if (pen) {
+    setTimeout(() => uySfx("plus"), card.c ? 90 : 320);
+    UY.shakeT = performance.now();
+    if (p === 1) uyFlash("rgba(232,64,42,.55)"); // you're the one drawing
+  }
   const word = card.v === "skip" ? "Skip!" : card.v === "reverse" ? "Reverse!" : card.c ? null : G.color[0].toUpperCase() + G.color.slice(1) + "!";
   if (word) uyFloat(word, card.c ? "#fff" : UY_COL[G.color], UY.top.position.clone().setY(0.05));
   if (!G.hands[p].length) return uyEnd(p ? "lose" : "win");
-  const pen = penalty(card);
+  if (p === 1 && G.hands[1].length === 1) { bigText("UYES!", "lose"); tune([784, 1047], 0.09, "triangle"); } // his call
   if (pen) uyDraw(1 - p, pen);
   if (p === 0 && G.hands[0].length === 1) uyArm();
   if (p === 1) { const line = G.hands[1].length === 1 ? "UYES!" : pen ? sayU("hit") : goesAgain(card) ? sayU("again") : null; if (line) uyHis(line); }
@@ -2005,6 +2099,7 @@ async function uyPlay(p, i, color) {
 }
 function uyTurn(p) {
   const G = game;
+  if (p === 0 && G.turn === 1) uySfx("turn"); // back to you
   G.turn = p;
   G.busy = p === 1;
   G.picking = null; G.drawn = null; // a new go: no colour picker or drawn card left over (Pass with the picker open)
@@ -2038,19 +2133,24 @@ function uyArm() { // down to one card: say UYES! within 2.5 s, or he catches yo
   const G = game;
   G.mustCall = true;
   clearTimeout(G.callTimer);
-  const t0 = Date.now(); // the seconds left, counting down in the top corner under whose go it is
+  const t0 = Date.now(); // the seconds left, counting down in the top corner under whose go it is, ticking each half second
+  let half = 6;
   clearInterval(G.clock);
   const tick = () => {
     const on = game === G && G.mustCall && !G.over;
     uyClock.hidden = !on;
     if (!on) return clearInterval(G.clock);
-    uyClock.textContent = `📣 UYES! ${Math.max(0, 2.5 - (Date.now() - t0) / 1000).toFixed(1)}s`;
+    const left = Math.max(0, 2.5 - (Date.now() - t0) / 1000);
+    uyClock.textContent = `📣 UYES! ${left.toFixed(1)}s`;
+    uyClock.classList.toggle("hurry", left < 1);
+    if (Math.ceil(left * 2) < half) { half = Math.ceil(left * 2); if (half > 0) uySfx("tick"); }
   };
   tick();
   G.clock = setInterval(tick, 100);
   G.callTimer = setTimeout(() => {
     if (game !== G || !G.mustCall || G.over) return;
     G.mustCall = false;
+    uySfx("caught"); uyFlash("rgba(232,64,42,.55)"); UY.shakeT = performance.now(); navigator.vibrate?.([30, 50, 30]);
     uyDraw(0, 2);
     uyHis("You didn't say UYES! Draw two. 😏");
     uyRender();
@@ -2069,7 +2169,7 @@ function uyBar() {
   showSeatBar(matchMedia("(max-width: 960px)").matches ? hint : title, hint, G.over ? "Done" : "Quit", quitUyes, G.over ? () => startUyes(G.level) : null);
   document.getElementById("seat-move").textContent = "Play again";
   const extra = document.getElementById("seat-extra");
-  const act = G.over ? null : G.mustCall ? ["📣 UYES!", () => { G.mustCall = false; clearTimeout(G.callTimer); tune([784, 1047], 0.09, "triangle"); G.hint = "UYES!"; uyBar(); setTimeout(() => { if (game === G && G.hint === "UYES!") { G.hint = ""; uyBar(); } }, 1500); }]
+  const act = G.over ? null : G.mustCall ? ["📣 UYES!", () => { G.mustCall = false; clearTimeout(G.callTimer); tune([784, 1047], 0.09, "triangle"); bigText("UYES!", "win"); G.hint = "UYES!"; uyBar(); setTimeout(() => { if (game === G && G.hint === "UYES!") { G.hint = ""; uyBar(); } }, 1500); }]
     : mine && !G.busy && G.drawn !== null ? ["Pass", () => { G.drawn = null; uyTurn(1); }]
     : mine && !G.busy && G.picking === null ? ["Draw", uyDrawMine] : null;
   extra.hidden = !act;
@@ -2094,8 +2194,11 @@ function uyRender() { // your hand: the cards you can play stand up; a Wild asks
   }
   uyHand.innerHTML = G.hands[0].map((c, i) => {
     const ok = mine && (G.drawn === null ? canPlay(c, top, G.color) : i === G.drawn);
-    return `<button class="card${ok ? " ok" : ""}" data-i="${i}"${ok ? "" : " disabled"} aria-label="${uyName(c)}"><img src="${uyUrl(c)}" alt=""></button>`;
+    // a card new to your hand drops in (the deal, one by one; a drawn card as its twin lands from the deck)
+    const fresh = i >= (G.shown ?? 0), delay = fresh ? (i - (G.shown ?? 0)) * (G.shown ? 0.14 : 0.07) + (G.shown ? 0.25 : 0) : 0;
+    return `<button class="card${ok ? " ok" : ""}${fresh ? " new" : ""}" data-i="${i}"${ok ? "" : " disabled"} aria-label="${uyName(c)}"><img src="${uyUrl(c)}" alt=""${fresh ? ` style="animation-delay:${delay}s"` : ""}></button>`;
   }).join("");
+  G.shown = G.hands[0].length;
   // a big hand overlaps more, so it always fits across the screen (each card keeps at least a corner showing)
   const w = uyHand.querySelector("img")?.offsetWidth || 0, n = G.hands[0].length;
   const step = n > 1 ? Math.max(12, Math.min(w - 34, (innerWidth - 40 - w) / (n - 1))) : w;
@@ -2120,8 +2223,9 @@ function uyEnd(result) {
   G.hint = (result === "win" ? "You win! 🎉" : "Bankza wins! 😎") + (counts ? ` Everyone so far: ${uyScore(G.level)}` : "");
   uyBar(); uyRender();
   bigText(result === "win" ? "YOU WIN!" : "BANKZA WINS!", result);
-  setTimeout(() => { if (game === G) director = uyShot(false); }, 900); // look up to see how he takes it
-  if (result === "win") { confetti(UY.g, 0.002); tune([523, 659, 784, 1047], 0.11, "triangle"); }
+  setTimeout(() => { if (game === G) { director = uyShot(false); uyHand.hidden = true; } }, 900); // look up to see how he takes it, your cards put away
+  setTimeout(() => game === G && speak({ text: sayU(result === "win" ? "lost" : "won") }), 1400); // and he has his say, in his voice
+  if (result === "win") { confetti(UY.g, 0.002); uySparks(80); uyWave(0xffe100, true); tune([523, 659, 784, 1047], 0.11, "triangle"); }
   else tune([392, 370, 349, 294], 0.32, "sawtooth", true);
   mood = { won: result === "lose", t0: performance.now() };
 }
