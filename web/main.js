@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { cards, site, drinks } from "./content.js?v=30";
+import { cards, site, drinks } from "./content.js?v=31";
 import { createSound, createStreetLife } from "./life.js?v=25";
 import { startBoard, legalMoves, play, botMove } from "./checkers.js?v=1";
 import { COLORS, newDeck, shuffle, canPlay, goesAgain, penalty, botPick, botColor } from "./uyes.js?v=1";
@@ -183,6 +183,12 @@ function animateClock() { // the visitor's real time; hands turn clockwise as se
 }
 
 const recordSpin = ["HOT_record_disc", "HOT_record_label"].map((n) => scene.getObjectByName(n));
+// the tone arm turns about its back end (measured from the arm's own box: 24 cm long, set at 20°)
+const armPivot = new THREE.Group();
+armPivot.position.set(0.241, 0.15, 0.093);
+scene.getObjectByName("HOT_record").add(armPivot);
+armPivot.attach(scene.getObjectByName("HOT_record_arm"));
+let armLift = 0;
 const musicOn = () => !!(audio && !audio.paused) || !!synth?.on;
 scene.getObjectByName("vinyl_shelf").userData.hotspot = "records";
 
@@ -234,13 +240,35 @@ scene.getObjectByName("vinyl_shelf").userData.hotspot = "records";
 // cat pets ("cat"), drinks ordered ("drink:<id>") and checkers results ("checkers:<level>:<win|lose|draw>")
 let counts = null; // null until they load; the cat, the menu and the checkers score only show numbers once they have
 fetch("/api/counters", { cache: "no-cache" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-  .then((c) => (counts = c)).catch((e) => console.warn("Couldn't load the shop's tallies:", e));
+  .then((c) => { counts = c; drawRequests(); }).catch((e) => console.warn("Couldn't load the shop's tallies:", e));
 function bump(name) { // add one here straight away, then take the server's number
   if (counts) counts[name] = (counts[name] || 0) + 1;
   fetch("/api/counters", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) })
     .then((r) => r.ok && r.json()).then((d) => d && counts && (counts[name] = d.n)).catch(() => {});
 }
 const times = (n) => `${n.toLocaleString("en-US")} time${n === 1 ? "" : "s"}`;
+// song requests ("request:<record id>", asked for in the crate) on a paper note pinned to the guestbook's top corner
+const reqCv = Object.assign(document.createElement("canvas"), { width: 320, height: 256 });
+const reqNote = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.24),
+  new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(reqCv), roughness: 0.9 }));
+reqNote.material.map.colorSpace = THREE.SRGBColorSpace;
+reqNote.position.set(4.866, 2.12, -1.65);
+reqNote.rotation.set(0, -Math.PI / 2, 0.05); // facing into the shop off the board, a little crooked
+scene.add(reqNote);
+scene.getObjectByName("HOT_board").attach(reqNote); // a tap on it opens the board
+function drawRequests() {
+  const g = reqCv.getContext("2d"), top = site.records.map((x) => [x, counts?.[`request:${x.id}`] || 0])
+    .filter(([, n]) => n).sort((a, b) => b[1] - a[1]).slice(0, 4);
+  g.fillStyle = "#fffdf7"; g.fillRect(0, 0, 320, 256);
+  g.fillStyle = "#e63946"; g.beginPath(); g.arc(160, 18, 9, 0, Math.PI * 2); g.fill(); // the pin
+  g.fillStyle = "#2b2420"; g.textAlign = "left";
+  g.font = "800 30px Archivo, sans-serif"; g.fillText("🙋 Requests", 20, 64);
+  g.font = "500 24px Anuphan, sans-serif";
+  if (!top.length) g.fillText("Ask for a song at the vinyl shelf", 20, 110, 280);
+  top.forEach(([x, n], i) => { g.fillText(`${i + 1}. ${x.name}`, 20, 108 + i * 38, 220); g.textAlign = "right"; g.fillText(`×${n}`, 300, 108 + i * 38); g.textAlign = "left"; });
+  reqNote.material.map.needsUpdate = true;
+}
+drawRequests();
 
 // ---------------------------------------------------------------- visitor counter: white lettering on the door glass
 // Counts each visitor once a day (api/visits.js, the visits table); a dash until the count comes back, or if it can't.
@@ -435,6 +463,12 @@ function animateProps(dt) {
   doorAmt += ((doorOpen ? 1 : 0) - doorAmt) * Math.min(1, dt * 5);
   door.rotation.y = -ease(doorAmt) * D(80); // swings into the shop on its right-hand hinge, stopping short of the side wall (the handle would go through it)
   if (musicOn()) for (const o of recordSpin) o.rotation.y -= dt * 3.5; // 33⅓ rpm
+  // the tone arm lifts, swings over the record and drops onto it (and back to its rest when the music stops)
+  const armGap = (musicOn() ? 0.35 : 0) - armPivot.rotation.y;
+  armPivot.rotation.y += THREE.MathUtils.clamp(armGap, -dt * 0.7, dt * 0.7);
+  armLift += ((Math.abs(armGap) > 0.003 ? 1 : 0) - armLift) * Math.min(1, dt * 10);
+  armPivot.position.y = 0.15 + 0.012 * armLift;
+  sleeve.visible = nowCard.visible = musicOn();
   animateClock();
 }
 
@@ -446,6 +480,10 @@ const LABEL = { about: "About me", skills: "Menu", hello: "Say hi", music: "Musi
   contact: "Contact", clock: "What time is it?", lamp: "Light on / off", records: "Pick a record",
   honk: "Beep beep!", bird: "Shoo!", book: "Open my portfolio", cat: "Pet the cat", chime: "7-Eleven", tip: "Tip me a coffee", uyes: "Play UYES" };
 
+// things in the shop (behind the front wall, z < 0) need you inside to tap them, or seated in there, or the tour
+// showing them; he's the exception, he serves through the window
+const inShop = (o) => (o.userData.inShop ??= new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3()).z < -0.2);
+const canReachIn = () => SPOT.indoors() || (director && !seated);
 function hotspotAt(x, y) {
   ndc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
   ray.setFromCamera(ndc, camera);
@@ -454,7 +492,7 @@ function hotspotAt(x, y) {
   for (const h of ray.intersectObject(scene, true)) { // scene, not gltf.scene: the passing cars and birds live there too
     let hot = null;
     for (let o = h.object; o && !hot; o = o.parent) if (o.userData.hotspot) hot = o;
-    if (hot) return hot;
+    if (hot) return hot.userData.hotspot !== "about" && !canReachIn() && inShop(hot) ? null : hot;
     if (!h.object.material?.transparent) return null;
   }
   return null;
@@ -497,7 +535,7 @@ addEventListener("click", (e) => {
   if (game && onScene(e)) return game.uyes ? uyesClick(e) : boardClick(e);
   if (latte && onScene(e)) return; // pouring, not tapping things
   if (bubble?.dataset.idle && bubble.contains(e.target)) return closeBubble(); // tap what he said to put it away
-  if (bubble?.contains(e.target) || e.target.closest?.("#tour, #help, #board, #book, #kofi, #mute, #seatbar")) return;
+  if (bubble?.contains(e.target) || e.target.closest?.("#tour, #help, #board, #book, #kofi, #crate, #mute, #seatbar")) return;
   closeBubble();
   const o = onScene(e) ? hotspotAt(e.clientX, e.clientY) : null;
   if (!o) return;
@@ -512,7 +550,7 @@ addEventListener("click", (e) => {
   tip.style.opacity = 0;
   const r = screenRect(o);
   if (key === "music") return toggleMusic(r);
-  if (key === "records") return recordMenu(r);
+  if (key === "records") return openCrate();
   if (key === "uyes") return uyesMenu(r);
   if (key === "door") return toggleDoor();
   if (key === "cat") return petCat(r);
@@ -855,44 +893,202 @@ function openBook(from) { // from: the screen rect it flies in from (the book on
 }
 
 // ---------------------------------------------------------------- music: the record player toggles it
-let audio = null, synth = null, rec = site.records[0];
+// One AudioContext for all the records, played through an analyser so he can move to the bass as it hits.
+let audio = null, synth = null, rec = site.records[0], mac = null, beatAn = null, beatBuf = null, beatSlow = 0;
+const decks = new Map(); // record id → its <audio> or synth, made the first time it plays
+function musicCtx() {
+  if (!mac) {
+    mac = new AudioContext();
+    beatAn = Object.assign(mac.createAnalyser(), { fftSize: 256, smoothingTimeConstant: 0.3 });
+    beatAn.connect(mac.destination);
+    beatBuf = new Uint8Array(beatAn.frequencyBinCount);
+  }
+  mac.resume();
+  return mac;
+}
+// how hard the bass is hitting now, over its running level: 0 between beats, up to about 1 on a kick
+function beatPulse() {
+  if (!musicOn()) return 0;
+  beatAn.getByteFrequencyData(beatBuf);
+  const level = (beatBuf[0] + beatBuf[1]) / 510; // under ~350 Hz: the kick and the bass
+  beatSlow += (level - beatSlow) * 0.05;
+  return Math.min(1, Math.max(0, level - beatSlow) * 6);
+}
 function stopMusic() { audio?.pause(); if (synth?.on) synth.toggle(); }
 function startMusic() {
-  if (!rec.url) { synth ??= lofiSynth(); if (!synth.on) synth.toggle(); return; }
-  if (!audio?.src.endsWith(rec.url)) audio = Object.assign(new Audio(rec.url), { loop: true, volume: 0.5 });
-  audio.play();
+  const ac = musicCtx();
+  if (!decks.has(rec.id)) {
+    if (rec.url) {
+      const a = Object.assign(new Audio(rec.url), { loop: true, volume: 0.5 });
+      ac.createMediaElementSource(a).connect(beatAn);
+      decks.set(rec.id, a);
+    } else decks.set(rec.id, bandSynth(ac, rec.synth));
+  }
+  const d = decks.get(rec.id);
+  [audio, synth] = rec.url ? [d, null] : [null, d];
+  rec.url ? audio.play() : synth.on || synth.toggle();
+  sleeve.material.map = new THREE.CanvasTexture(coverArt(rec));
+  sleeve.material.map.colorSpace = THREE.SRGBColorSpace;
+  sleeve.material.needsUpdate = true;
+  setTimeout(() => { // he has something to say about it, once the needle's down
+    if (musicOn() && !bubble && !document.querySelector("dialog[open]") && !game) speak({ text: rec.say[Math.floor(Math.random() * rec.say.length)] });
+  }, 1800);
 }
+// the secret records: one only at night, one once you've found 8 of the easter eggs
+const unlocked = (x) => !x.secret || (x.secret === "night" ? timeKey === "night" : eggs.size >= 8);
+// tapping the player to put music on plays the most-requested records in turn, then whatever was on last
+let queueAt = 0;
 function toggleMusic(r) {
-  musicOn() ? stopMusic() : startMusic();
-  showBubble({ title: musicOn() ? `♪ ${rec.name}` : "Music off" }, r, 1400);
-}
-// the vinyl shelf: pick a record and it goes on the player
-function recordMenu(r) {
-  showBubble({ title: "Pick a record", body: musicOn() ? `Now playing: ${rec.name}` : "",
-    actions: site.records.map((x) => ({ label: `${x === rec && musicOn() ? "♪ " : ""}${x.name}`, run: () => {
-      stopMusic(); rec = x; startMusic();
-      closeBubble();
-      showBubble({ title: `♪ ${x.name}`, body: `by ${x.by}` }, screenRect(recordObj), 1600);
-    } })) }, r);
+  if (musicOn()) stopMusic();
+  else {
+    const q = site.records.filter((x) => unlocked(x) && counts?.[`request:${x.id}`]).sort((a, b) => counts[`request:${b.id}`] - counts[`request:${a.id}`]);
+    if (q.length) rec = q[queueAt++ % q.length];
+    startMusic();
+  }
+  const n = musicOn() && counts?.[`request:${rec.id}`];
+  showBubble({ title: musicOn() ? `♪ ${rec.name}` : "Music off", body: n ? `🙋 Requested ${times(n)}` : "" }, r, 1400);
 }
 
-// ponytail: a tiny built-in lofi loop (soft chords + dusty beat) until a real track is set in content.js
-function lofiSynth() {
-  const ac = new AudioContext();
+// a sleeve for each record, drawn: a sun going down behind stripes, the name and who made it
+const covers = new Map();
+function coverArt(x) {
+  if (covers.has(x.id)) return covers.get(x.id);
+  const cv = document.createElement("canvas"); cv.width = cv.height = 256;
+  const g = cv.getContext("2d"), [a, b] = x.cover;
+  g.fillStyle = a; g.fillRect(0, 0, 256, 256);
+  g.fillStyle = b; g.beginPath(); g.arc(128, 112, 72, 0, Math.PI * 2); g.fill();
+  g.fillStyle = a; for (let i = 0; i < 5; i++) g.fillRect(0, 118 + i * 13, 256, 2 + i * 1.5);
+  g.fillStyle = b; g.textAlign = "center";
+  g.font = "800 26px Archivo, sans-serif"; g.fillText(x.name, 128, 220, 236);
+  g.font = "500 15px Anuphan, sans-serif"; g.fillText(x.by, 128, 243, 236);
+  covers.set(x.id, cv);
+  return cv;
+}
+// what's playing stands face out on the shelf, with a little "now playing" card under it
+const shelfFace = new THREE.Box3().setFromObject(scene.getObjectByName("vinyl_shelf_3_1_face"));
+const sleeve = new THREE.Mesh(new THREE.PlaneGeometry(0.31, 0.31), new THREE.MeshStandardMaterial({ roughness: 0.7 }));
+sleeve.position.copy(shelfFace.getCenter(new THREE.Vector3())).setZ(shelfFace.max.z + 0.004);
+const nowCard = (() => {
+  const cv = document.createElement("canvas"); cv.width = 256; cv.height = 48;
+  const g = cv.getContext("2d");
+  g.fillStyle = "#2b2420"; g.fillRect(0, 0, 256, 48);
+  g.fillStyle = "#ffe100"; g.font = "800 26px Archivo, sans-serif"; g.textAlign = "center"; g.fillText("▶ NOW PLAYING", 128, 34);
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.0375), new THREE.MeshBasicMaterial({ map: t }));
+  m.position.set(sleeve.position.x, shelfFace.min.y - 0.035, -3.945); // hung off the front of the shelf board below
+  return m;
+})();
+scene.add(sleeve, nowCard);
+for (const o of [sleeve, nowCard]) scene.getObjectByName("vinyl_shelf").attach(o); // taps on them are the shelf's
+
+// the records: tap the shelf and they come off it into a row across the screen, standing like they do on a shelf,
+// mostly spine-on and turned toward the middle. Drag or scroll along the row (or the arrow keys, or tap one) and the
+// one you stop on is pulled out and turned to face you; then play it, or ask for it (a request: everyone's count
+// shows on the guestbook board)
+const requested = new Set();
+try { for (const k of JSON.parse(localStorage.getItem("nakang-requests")) || []) requested.add(k); } catch {}
+function openCrate() {
+  const dlg = document.getElementById("crate"), row = dlg.querySelector(".row"), info = dlg.querySelector(".info"), back = director;
+  director = shotOf(scene.getObjectByName("vinyl_shelf"));
+  const recs = site.records.filter(unlocked);
+  let at = Math.max(0, recs.indexOf(rec)), pos = at; // pos: where the row is, between records while you drag
+  row.innerHTML = recs.map((x, i) => {
+    const spine = `<span><b>${esc(x.name)}</b> ${esc(x.by)}</span>`;
+    return `<div class="rec" data-i="${i}" style="--a:${x.cover[0]};--b:${x.cover[1]}"><img class="face front" src="${coverArt(x).toDataURL()}" alt="">
+      <div class="face spine l">${spine}</div><div class="face spine r">${spine}</div><div class="face top"></div><div class="face back"></div></div>`;
+  }).join("");
+  const els = [...row.children];
+  const lay = () => { // ponytail: the angles and gaps are by eye against the reference
+    const w = els[0].offsetWidth;
+    els.forEach((el, i) => {
+      const d = i - pos, n = Math.abs(d), side = Math.sign(d), out = !dragging && i === at;
+      const gx = n < 1 ? n * w * 0.62 : w * 0.62 + (n - 1) * w * 0.4; // the middle one's neighbours stand clear of it
+      const turn = (76 - Math.min(24, n * 8)) * Math.min(1, n * 2); // nearly spine-on, less so further out; dragged through the middle, it turns to you
+      el.style.transform = out ? `translate3d(0, -6%, ${w * 0.55}px) scale(1.04)` // pulled out, facing you
+        : `translate3d(${side * gx}px, 0, ${-n * 18}px) rotateY(${-side * turn}deg)`;
+      el.style.zIndex = out ? 99 : 50 - Math.round(n);
+      el.classList.toggle("on", out);
+    });
+    const x = recs[at], c = counts?.[`request:${x.id}`] || 0, on = x === rec && musicOn();
+    info.innerHTML = `<p><b>${esc(x.name)}</b>${x.secret ? ' <span class="secret">✨ secret</span>' : ""}<br>${on ? "♪ Now playing" : esc(x.by)}</p>
+      <button class="play">${on ? "⏹ Stop" : "▶ Play"}</button>
+      <button class="req" ${requested.has(x.id) ? "disabled" : ""}>🙋 ${requested.has(x.id) ? "Asked" : "Request"}${c ? ` · ${c}` : ""}</button>`;
+  };
+  const go = (i) => { at = pos = THREE.MathUtils.clamp(Math.round(i), 0, recs.length - 1); lay(); };
+  let dragging = false, x0 = 0, p0 = 0, moved = false, wheelAt = 0;
+  row.onpointerdown = (e) => { dragging = true; moved = false; x0 = e.clientX; p0 = pos; row.classList.add("drag"); row.setPointerCapture(e.pointerId); };
+  row.onpointermove = (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - x0;
+    if (Math.abs(dx) > 6) moved = true;
+    pos = THREE.MathUtils.clamp(p0 - dx / (els[0].offsetWidth * 0.4), 0, recs.length - 1);
+    at = Math.round(pos);
+    lay();
+  };
+  row.onpointerup = row.onpointercancel = (e) => {
+    if (!dragging) return;
+    dragging = false; row.classList.remove("drag");
+    const el = !moved && document.elementsFromPoint(e.clientX, e.clientY).find((o) => o.closest?.(".rec"))?.closest(".rec");
+    go(el ? +el.dataset.i : pos);
+  };
+  row.onwheel = (e) => { e.preventDefault(); if (performance.now() - wheelAt > 160) { wheelAt = performance.now(); go(at + Math.sign(e.deltaX || e.deltaY)); } };
+  dlg.onkeydown = (e) => { const k = { ArrowRight: 1, ArrowLeft: -1 }[e.key]; if (k) { e.preventDefault(); go(at + k); } };
+  info.onclick = (e) => {
+    const btn = e.target.closest("button"), x = recs[at];
+    if (!btn) return;
+    if (btn.classList.contains("req")) {
+      requested.add(x.id);
+      try { localStorage.setItem("nakang-requests", JSON.stringify([...requested])); } catch {}
+      bump(`request:${x.id}`);
+      drawRequests();
+      return lay();
+    }
+    const stop = x === rec && musicOn();
+    stopMusic();
+    if (!stop) { rec = x; startMusic(); }
+    dlg.close();
+  };
+  dlg.querySelector(".x").onclick = () => dlg.close();
+  dlg.onclose = () => { director = back; };
+  dlg.showModal();
+  go(at);
+}
+
+// A little band made in the browser, for the records with url "" (their `synth` in content.js): chords on a pad, one a
+// bar; a bass line; drums; and a tune if there is one. Without a style it's the shop's own lofi loop.
+//   bass: [beat, which chord note, octave, beats long] in each bar; kick, tick, snare, ching: the beats they land on;
+//   hats: 2 for 8ths, 4 for 16ths (swing pushes every other one late); lead: one token an 8th note across all the
+//   bars: a MIDI note, "-" to hold it, "." for a rest
+function bandSynth(ac, {
+  bpm = 72, chords = [[53, 57, 60, 64], [52, 55, 59, 62], [50, 53, 57, 60], [48, 52, 55, 59]], cutoff = 1400, pad = "triangle", // Fmaj7 Em7 Dm7 Cmaj7
+  bass = [[0, 0, -1, 2], [2.5, 2, -1, 1.5]], bassWave = "sine", kick = [0, 2], tick = [1, 3], snare = [], ching = [], hats = 0, swing = 0,
+  lead = "", leadWave = "square", vibrato = 0,
+} = {}) {
   const out = ac.createGain();
   out.gain.value = 0;
   const lp = ac.createBiquadFilter();
   lp.type = "lowpass";
-  lp.frequency.value = 1400;
-  out.connect(lp).connect(ac.destination);
-  const chords = [[53, 57, 60, 64], [52, 55, 59, 62], [50, 53, 57, 60], [48, 52, 55, 59]]; // Fmaj7 Em7 Dm7 Cmaj7
+  lp.frequency.value = cutoff;
+  out.connect(lp).connect(beatAn);
   const hz = (n) => 440 * 2 ** ((n - 69) / 12);
-  const beat = 60 / 72;
+  const beat = 60 / bpm;
+  const hiss = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+  hiss.getChannelData(0).forEach((_, i, d) => (d[i] = Math.random() * 2 - 1));
+  const tune = []; // the lead as notes: [start, MIDI note, length], in 8ths
+  lead.split(/\s+/).filter(Boolean).forEach((k, i) => {
+    if (k === "-" && tune.length) tune[tune.length - 1][2]++;
+    else if (k !== "." && k !== "-") tune.push([i, +k, 1]);
+  });
   let bar = 0, timer = null;
-  function note(f, t, len, type = "triangle", vol = 0.06) {
+  function note(f, t, len, type = "triangle", vol = 0.06, wobble = 0) {
     const o = ac.createOscillator(), g = ac.createGain();
     o.type = type;
     o.frequency.value = f;
+    if (wobble) { // vibrato: a slow wobble in pitch, in cents
+      const l = ac.createOscillator(), lg = ac.createGain();
+      l.frequency.value = 5.5; lg.gain.value = wobble;
+      l.connect(lg).connect(o.detune); l.start(t); l.stop(t + len + 0.05);
+    }
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(vol, t + 0.05);
     g.gain.exponentialRampToValueAtTime(0.0001, t + len);
@@ -910,15 +1106,28 @@ function lofiSynth() {
     o.start(t);
     o.stop(t + len);
   }
+  function noise(t, len, vol, f, type) { // a burst of hiss through a filter: snares, hats
+    const src = ac.createBufferSource(), fl = ac.createBiquadFilter(), g = ac.createGain();
+    src.buffer = hiss; fl.type = type; fl.frequency.value = f;
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    src.connect(fl).connect(g).connect(out);
+    src.start(t, Math.random() * 0.5);
+    src.stop(t + len);
+  }
   function scheduleBar() {
-    const t0 = ac.currentTime + 0.05, ch = chords[bar++ % chords.length];
-    ch.forEach((n, i) => note(hz(n), t0 + i * 0.02, beat * 4, "triangle", 0.045));
-    note(hz(ch[0] - 12), t0, beat * 2, "sine", 0.12);
-    note(hz(ch[2] - 12), t0 + beat * 2.5, beat * 1.5, "sine", 0.1);
-    for (let b = 0; b < 4; b++) {
-      if (b % 2 === 0) hit(t0 + b * beat, 120, 0.25, 0.35);
-      else hit(t0 + b * beat, 900, 0.08, 0.06);
+    const t0 = ac.currentTime + 0.05, i = bar++ % chords.length, ch = chords[i];
+    ch.forEach((n, k) => note(hz(n), t0 + k * 0.02, beat * 4, pad, 0.045));
+    for (const [b, k, oct, len] of bass) note(hz(ch[k] + 12 * oct), t0 + b * beat, len * beat, bassWave, 0.12);
+    for (const b of kick) hit(t0 + b * beat, 120, 0.25, 0.35);
+    for (const b of tick) hit(t0 + b * beat, 900, 0.08, 0.06);
+    for (const b of snare) { noise(t0 + b * beat, 0.18, 0.22, 1800, "bandpass"); hit(t0 + b * beat, 190, 0.08, 0.12); }
+    for (const b of ching) { // small cymbals: two high, clashing tones that ring, and a tick of hiss
+      note(2650, t0 + b * beat, 0.4, "sine", 0.025); note(3970, t0 + b * beat, 0.3, "sine", 0.018);
+      noise(t0 + b * beat, 0.05, 0.06, 6000, "highpass");
     }
+    for (let k = 0; k < hats * 4; k++) noise(t0 + (k + (k % 2 ? swing : 0)) * beat / hats, 0.04, k % 2 ? 0.035 : 0.055, 7000, "highpass");
+    for (const [at, n, len] of tune) if (Math.floor(at / 8) === i) note(hz(n), t0 + (at % 8) * beat / 2, len * beat / 2, leadWave, 0.045, vibrato);
   }
   return {
     on: false,
@@ -1029,7 +1238,7 @@ function strollToRecords(dt) {
   sitAmt += ((atBoard ? 1 : 0) - sitAmt) * Math.min(1, dt * 4); // at the board he sits down
   me.position.y += SIT.dy * sitAmt;
 }
-let dancing = false, danceAmt = 0;
+let dancing = false, danceAmt = 0, beatAmt = 0;
 function animateDance(dt) {
   if (dancing && !musicOn()) dancing = false; // the music stopped: so does he
   const there = Math.abs(walkS - danceLen) < 0.01; // dance once he's at the record player
@@ -1078,6 +1287,13 @@ function animateCharacter(dt) {
   headBone.quaternion.premultiply(_pq.clone().invert().multiply(look).multiply(_pq));
   const talk = bubble?.dataset.idle ? stand : 0; // saying an idle line: a little bob of the head (his mouth can't move)
   if (gw || talk) gesturePose(gt, gw, talk);
+  // with music on his head bobs to the bass as it hits, and dancing he dips on the kicks
+  beatAmt += (beatPulse() - beatAmt) * Math.min(1, dt * 20);
+  if (beatAmt > 0.01) {
+    _left.set(Math.cos(me.rotation.y), 0, -Math.sin(me.rotation.y));
+    turnWorld(headBone, _mq.setFromAxisAngle(_left, D(9) * beatAmt * (1 - 0.6 * sitAmt)));
+    me.position.y -= 0.025 * beatAmt * danceAmt;
+  }
   // after a game, seated: both arms up when he wins, head and shoulders down when he loses (eased in and out)
   const mt = mood ? (performance.now() - mood.t0) / 1000 : 0;
   const mw = mood ? THREE.MathUtils.clamp(Math.min(mt / 0.35, (MOOD_S - mt) / 0.6), 0, 1) * sitAmt : 0;

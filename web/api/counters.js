@@ -1,9 +1,9 @@
 // /api/counters: small tallies shared by every visitor (the counters table in Neon, see db/counters.sql)
 // GET: { name: n } for every counter. POST { name }: add one to it, returns { n }.
 import { neon } from "@neondatabase/serverless";
-import { drinks } from "../content.js";
+import { drinks, site } from "../content.js";
 
-const NAMES = new Set(["cat", ...drinks.map((d) => `drink:${d.id}`),
+const NAMES = new Set(["cat", ...drinks.map((d) => `drink:${d.id}`), ...site.records.map((r) => `request:${r.id}`),
   ...["easy", "hard"].flatMap((l) => ["win", "lose", "draw"].map((r) => `checkers:${l}:${r}`)),
   ...["easy", "hard"].flatMap((l) => ["win", "lose"].map((r) => `uyes:${l}:${r}`))]);
 
