@@ -9,7 +9,8 @@ const KINDS = { png: (b) => b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71
 
 export async function GET() {
   const [row] = await neon(process.env.DATABASE_URL)`select image, created_at from guestbook order by id desc limit 1`;
-  return Response.json(row ?? null, { headers: { "Cache-Control": "public, max-age=0, s-maxage=5, stale-while-revalidate=60" } });
+  // no stale-while-revalidate: the first visitor after a quiet spell would get an old board (even an empty one)
+  return Response.json(row ?? null, { headers: { "Cache-Control": "public, max-age=0, s-maxage=5" } });
 }
 
 export async function POST(request) {

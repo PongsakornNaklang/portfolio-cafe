@@ -104,7 +104,6 @@ def paint_face(ch):
     for img in imgs:
         a = np.empty(W * H * 4, np.float32); img.pixels.foreach_get(a); pxs.append(a.reshape(H, W, 4))
     base = pxs[0].copy(); orig = [p.copy() for p in pxs]
-    painted = np.zeros((H, W), bool)
 
     def texels(ti):  # pixel rows, cols and 3D points covered by triangle ti in the texture
         uv = tuv[ti] * [W, H]
@@ -146,18 +145,17 @@ def paint_face(ch):
             uv = barycentric_transform(loc, *A, *U)
             for px, o in zip(pxs, orig):
                 px[y, x] = sample(o, (uv.x, uv.y))
-            painted[y, x] = True
             n_eye += 1
     print("eye texels", n_eye)
 
     is_blue = lambda c: c[..., 2] > c[..., 0] + 0.08  # the shirt
     tri_col = np.array([sample(base, uv.mean(0))[:3] for uv in tuv])
 
-    def clean_edge(name, sel, o, ax):
+    def clean_edge(name, sel, o, ax, reach=0.02, is_shirt=is_blue):
         """Where the shirt ends (neckline, a sleeve), a clean edge in the shirt's own colour: fit the hem as a smooth
         curve around the axis (skin lies along +ax), then repaint either side of it. The hem is a lip standing out from
-        the skin, so whatever stands out past the skin's own surface just beyond the hem counts as shirt: the edge
-        follows that crease instead of cutting across the lip."""
+        the skin, so whatever stands out past the skin's own surface just beyond the hem (up to `reach`) counts as
+        shirt: the edge follows that crease instead of cutting across the lip."""
         ax = np.asarray(ax, float); ax /= np.linalg.norm(ax)
         e1 = np.cross(ax, [0, 0, 1] if abs(ax[2]) < 0.9 else [1, 0, 0]); e1 /= np.linalg.norm(e1); e2 = np.cross(ax, e1)
 
@@ -167,7 +165,7 @@ def paint_face(ch):
 
         fourier = lambda t: np.c_[np.ones_like(t), np.cos(t), np.sin(t), np.cos(2 * t), np.sin(2 * t)]
         idx = np.nonzero(sel)[0]
-        h, th, rad = frame(cen[idx]); bl = is_blue(tri_col[idx])
+        h, th, rad = frame(cen[idx]); bl = is_shirt(tri_col[idx])
         bins = np.linspace(-np.pi, np.pi, 25); bt, bh = [], []
         for k in range(24):
             m = (th >= bins[k]) & (th < bins[k + 1])
@@ -195,14 +193,13 @@ def paint_face(ch):
                 continue
             ys_, xs_, P = r
             hh, tt, rp = frame(P); dd = hh - hem(tt)
-            shirt_ = (dd < -0.012) | ((rp > skin_r(tt) + LIP) & (dd < 0.02))
-            ob = is_blue(base[ys_, xs_])
+            shirt_ = (dd < -0.012) | ((rp > skin_r(tt) + LIP) & (dd < reach))
+            ob = is_shirt(base[ys_, xs_])
             for k, px in enumerate(pxs):
                 c = px[ys_, xs_, :3]
                 c[~shirt_] = skin[k]
                 c[shirt_ & ~ob] = shirt[k]
                 px[ys_, xs_, :3] = c
-            painted[ys_, xs_] = True
             n += len(ys_)
         print(name, "texels", n, "hem", np.round(bh, 3))
 
@@ -215,11 +212,38 @@ def paint_face(ch):
         ax = np.linalg.svd(P - o)[2][0]
         ax *= np.sign(ax[0]) * s  # out along the arm, toward the hand
         sleeve = arm_ & (s * (cen[:, 0] - xm) < 0.36)
-        clean_edge(f"sleeve {s:+d}", sleeve, o, ax)
+        clean_edge(f"sleeve {s:+d}", sleeve, o, ax, reach=0.0)  # the bare arm's own bumps pass the lip test further down
+    # the shirt's bottom hem over the trousers: navy below (navy is blue too, so the shirt here is the bright blue)
+    waist = (cen[:, 1] > 0.8) & (cen[:, 1] < 1.2) & (np.abs(cen[:, 0] - xm) < 0.2)
+    clean_edge("waist", waist, np.array([xm, 0, np.median(cen[waist, 2])]), (0, -1, 0), reach=0.0,
+               is_shirt=lambda c: is_blue(c) & (c[..., :3].max(-1) > 0.45))
+
+    # 3. the trousers: Meshy left thin pale scratches on the navy. Each one becomes the average of the clean navy around it
+    navy = (tri_col[:, 2] > tri_col[:, 0] + 0.03) & (tri_col.max(1) < 0.45) & (cen[:, 1] < 1.0)
+    legs = np.zeros((H, W), bool)
+    for ti in np.nonzero(navy)[0]:
+        r = texels(ti)
+        if r is not None:
+            legs[r[0], r[1]] = True
+    lum = base[..., :3].mean(-1)
+    ref = np.median(lum[legs])
+    scratch = legs & (lum > ref + 0.05)
+    keep = legs & ~scratch
+    def box(a, k=6):  # sum over a (2k+1)^2 window, via cumulative sums
+        c = np.pad(a, ((k + 1, k), (k + 1, k))).cumsum(0).cumsum(1)
+        return c[2 * k + 1:, 2 * k + 1:] - c[:-2 * k - 1, 2 * k + 1:] - c[2 * k + 1:, :-2 * k - 1] + c[:-2 * k - 1, :-2 * k - 1]
+    wsum = box(keep.astype(np.float32))
+    ok = scratch & (wsum > 0)
+    for px in pxs:
+        for ch_ in range(3):
+            avg = box(np.where(keep, px[..., ch_], 0).astype(np.float32)) / np.maximum(wsum, 1)
+            px[..., ch_][ok] = avg[ok]
+    print("trouser scratches", int(ok.sum()), "of", int(legs.sum()))
 
 
-    # pad the repainted patches out into the gutter around them (texels no triangle covers), or filtering at a distance
-    # blends the old gutter colour back in along the seams
+    # pad every patch out into the gutter around it (texels no triangle covers) in its own colour. Filtering at a
+    # distance reads past a patch's edge: an unpadded gutter is pale (lines along the trouser seams), and padding from one
+    # patch only would push its colour into the next (navy onto the shirt, blue onto the trousers)
     cover = np.zeros((H, W), bool)
     for ti in range(len(tv)):
         uv = tuv[ti] * [W, H]
@@ -233,20 +257,15 @@ def paint_face(ch):
         l12 = np.linalg.solve(m, (np.stack([xs.ravel() + 0.5, ys.ravel() + 0.5], 1) - a).T).T
         ok = (l12.min(1) >= 0) & (l12.sum(1) <= 1)
         cover[ys.ravel()[ok], xs.ravel()[ok]] = True
-    rows, cols = np.nonzero(painted)
-    r0, r1, c0, c1 = max(rows.min() - 16, 0), min(rows.max() + 17, H), max(cols.min() - 16, 0), min(cols.max() + 17, W)
-    done = painted[r0:r1, c0:c1] | cover[r0:r1, c0:c1]
-    grow = painted[r0:r1, c0:c1].copy()
+    done = cover.copy()
     for _ in range(PAD):
         for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
-            src_ = np.roll(grow, (dy, dx), (0, 1))
-            take = src_ & ~done
+            take = np.roll(done, (dy, dx), (0, 1)) & ~done
             if take.any():
                 for px in pxs:
-                    blk = px[r0:r1, c0:c1]
-                    blk[take] = np.roll(blk, (dy, dx), (0, 1))[take]
-                grow |= take; done |= take
-    print("padded", int(grow.sum() - painted.sum()))
+                    px[take] = np.roll(px, (dy, dx), (0, 1))[take]
+                done |= take
+    print("padded", int(done.sum() - cover.sum()))
     for img, px in zip(imgs, pxs):
         img.pixels.foreach_set(px.ravel())
     return imgs
@@ -290,9 +309,6 @@ for name in ("CAM_front", "CAM_close"):
     fwd = c.matrix_world.to_quaternion() @ __import__("mathutils").Vector((0, 0, -1))
     cams[name] = {"pos": gl(c.location), "dir": gl(fwd), "fov": round(c.data.angle_y * 57.2958, 2)}
 hot = {o.name: {"hotspot": o["hotspot"], "pos": gl(o.matrix_world.translation)} for o in bpy.data.objects if "hotspot" in o.keys()}
-with open(os.path.join(out_dir, "rig.json"), "w") as f:
-    json.dump({"walk": pts, "cams": cams, "hotspots": hot}, f, indent=1)
-
 bpy.ops.export_scene.gltf(
     filepath=os.path.join(out_dir, "storefront.glb"),
     export_format="GLB",
@@ -306,4 +322,7 @@ bpy.ops.export_scene.gltf(
     export_draco_mesh_compression_level=7,
     export_image_quality=90,  # the character's 4K textures (the rest stay PNG)
 )
+# glbBytes: the server compresses the GLB, so the browser gets no length for the loading screen's percent
+with open(os.path.join(out_dir, "rig.json"), "w") as f:
+    json.dump({"walk": pts, "cams": cams, "hotspots": hot, "glbBytes": os.path.getsize(os.path.join(out_dir, "storefront.glb"))}, f, indent=1)
 print("exported", out_dir)

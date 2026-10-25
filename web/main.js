@@ -65,11 +65,13 @@ function loaded(pct) { // the bar and the number on the loading screen
   loading.querySelector("small").textContent = `Opening the shop… ${pct}%`;
   loading.setAttribute("aria-valuenow", pct);
 }
+const rigJson = fetch("rig.json").then((r) => r.json());
 const [gltf, rig, projects] = await Promise.all([
   new GLTFLoader()
     .setDRACOLoader(new DRACOLoader().setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/gltf/"))
-    .loadAsync("storefront.glb", (e) => e.total && loaded(Math.min(99, (e.loaded / e.total) * 100))), // 100 once it's all set up
-  fetch("rig.json").then((r) => r.json()),
+    // the server sends it compressed with no length: then the size comes from rig.json. 100 once it's all set up
+    .loadAsync("storefront.glb", (e) => rigJson.then((r) => loaded(Math.min(99, (e.loaded / (e.total || r.glbBytes)) * 100)))),
+  rigJson,
   // the display case's contents: the projects table in the database (db/projects.sql), served by api/projects.js
   fetch("/api/projects", { cache: "no-cache" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
     .catch((e) => { console.warn("Couldn't load the display case's projects:", e); return []; }),
@@ -950,7 +952,7 @@ function strollToRecords(dt) {
   // counter once you're through the door, or the board when he's come over to play
   const atBoard = game && walkS > routeLen - 0.01;
   const heading = moving ? Math.atan2(dir.x, dir.z) + (target < walkS ? Math.PI : 0)
-    : atBoard ? Math.atan2(CK.centre.x - p.x, CK.centre.z - p.z) : inProgress > 0.45 ? PICKUP_HEADING : 0;
+    : atBoard ? Math.atan2(CK.centre.x - p.x, CK.centre.z - p.z) : inProgress > 0.45 && !dancing ? PICKUP_HEADING : 0; // dancing: out to the shop front
   let turn = heading - me.rotation.y;
   turn = Math.atan2(Math.sin(turn), Math.cos(turn)); // the short way round
   me.rotation.y += turn * Math.min(1, dt * 8);
@@ -1590,3 +1592,4 @@ renderer.setAnimationLoop(() => {
   renderer.shadowMap.needsUpdate = frameNo++ % 2 === 0; // moving shadows (him, the cars, the birds) at 30 per second
   renderer.render(scene, camera);
 });
+

@@ -17,11 +17,15 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 - The orange wall lamp is off in the daytime (on at sunset and night); a tap still switches it.
 - After a game of checkers he reacts in his seat: both arms up, palms in, when he wins; head and shoulders down when he loses.
 - His face and shirt are touched up in the texture at export (`paint_face` in `blender/export_web.py`): his right eye is now a mirror image of his left (it was ragged, with a pale streak through it), and the neckline and sleeve hems have clean edges in the shirt's own blue.
+- More touch-ups: no blue spikes under his right sleeve, a clean edge where the shirt meets the trousers (no blue on the navy), and no pale scratches on the trousers. Every texture patch is now padded into its UV gutter in its own colour, so colours no longer bleed across seams at a distance.
+- He dances facing the shop front (he used to face the PICKUP counter once you were inside).
+- The loading screen counts up on the live site too: the server compresses the model and sends no length, so the page takes its size from `rig.json` (`glbBytes`, written at export).
 
 ### Performance
 - Smoother: the scene renders at 1.5x the screen's pixels at most (was 2x on computers) and redraws the sun's shadows every other frame. Measured on a MacBook: 44–46 fps → 57–59 fps, with far fewer stutters.
 
 ### Fixed
+- The guestbook board shows the newest drawing as the page opens. The API no longer sends `stale-while-revalidate`, which let the server's cache hand the first visitor an old board (even an empty one) until you opened the drawing window.
 - Checkers: quitting while a cap was still hopping threw an error and left a stray cap on the board for the next game.
 - Checkers: Play again within a second of the end could leave the camera stuck on the wide shot.
 - Checkers: the win confetti carried on over the board after you left; it now clears with the game.
