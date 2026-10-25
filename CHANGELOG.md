@@ -4,6 +4,32 @@ All notable changes to this site. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+### Changed
+- Between games the checkers board sits on top of the drinks fridge behind the counter, set up and waiting (just for show: it isn't clickable). Starting a game pops it onto the centre table; when you're done it goes back.
+- Closing the door from inside keeps you inside (it used to walk you back out to the window); walk back toward the shut door and it opens for you. Closing it from outside still steps you back to the window.
+- The bird of paradise by the record shelf is smaller (stems and leaves at 75%).
+- The display case holds 4 projects a shelf (8 in all, was 6), and the iPod is smaller (x4 toy scale, was x6).
+- What's in the display case now comes from a database (Neon Postgres through Vercel, the `projects` table; `web/api/projects.js`), so projects can be added or changed without a rebuild. Each row picks its model: a Blender one like the iPod, or a sphere, cube or pyramid (a sphere when it's left empty), each in its own colour. The card text and the book's project pages come from the same rows.
+- The guestbook board is shared: what you stick on it is saved to the database (`web/api/board.js`) and everyone sees the newest drawing. It only takes a PNG or WebP picture under 1.5 MB, one save per visitor every 15 seconds, and keeps the last 50 so a spoiled board can be put back.
+- A visitor counter: white lettering on the door glass shows how many people have visited. Each visitor counts once a day, so reloading doesn't add more (`web/api/visits.js`, the `visits` table; only a keyed hash of the IP and the day is kept, never the IP).
+- Shared tallies (`web/api/counters.js`, the `counters` table): petting the cat says how many times it's been petted by everyone; the drinks menu marks the most-ordered drink "★ Best seller"; and the checkers menu shows everyone's score against him on Easy and Hard ("you 12 · Bankza 34"), with the updated score in the bar when a game ends.
+- Speech bubbles size to their text: a short one like the cat's purr no longer sits in a 320px box. The tour keeps its fixed width.
+- The orange wall lamp is off in the daytime (on at sunset and night); a tap still switches it.
+- After a game of checkers he reacts in his seat: both arms up, palms in, when he wins; head and shoulders down when he loses.
+- His face and shirt are touched up in the texture at export (`paint_face` in `blender/export_web.py`): his right eye is now a mirror image of his left (it was ragged, with a pale streak through it), and the neckline and sleeve hems have clean edges in the shirt's own blue.
+
+### Performance
+- Smoother: the scene renders at 1.5x the screen's pixels at most (was 2x on computers) and redraws the sun's shadows every other frame. Measured on a MacBook: 44–46 fps → 57–59 fps, with far fewer stutters.
+
+### Fixed
+- Checkers: quitting while a cap was still hopping threw an error and left a stray cap on the board for the next game.
+- Checkers: Play again within a second of the end could leave the camera stuck on the wide shot.
+- Checkers: the win confetti carried on over the board after you left; it now clears with the game.
+- Checkers: when you lose he waves from his stool (before, sitting hid the wave).
+- His dance had drifted sideways into the plant by the counter (since the feet-on-the-floor fix): the dance's sway is measured from where the clip starts again, so he dances on his spot. His seat on the checkers stool is re-measured to match.
+- Records filed in the shelf cubbies no longer poke through the side panels.
+- The door is as tall as its frame (there was an 11 cm gap under the top beam).
+
 ## [1.2.0] - 2026-10-25
 
 ### Added

@@ -48,11 +48,7 @@ export const cards = {
     title: "สวัสดีครับ!",
     body: "Welcome to NAKANG. Tap anything that catches your eye.",
   },
-  "project:iport": {
-    title: "iPort",
-    body: "A web iPod: pick a song and click through a classic iPod interface in the browser.",
-    link: { label: "Open iPort", url: "https://iport-pi.vercel.app/" },
-  },
+  // projects in the display case come from the database (db/projects.sql); this one is only in the book
   "project:nakang": {
     title: "NAKANG",
     body: "This shop. A Bangkok street corner you can walk up to, sit in and tap around: modelled in Blender with Meshy models, built with three.js, coded with Claude Code.",

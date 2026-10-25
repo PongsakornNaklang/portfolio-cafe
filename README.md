@@ -32,6 +32,8 @@ blender/export_mixamo.py      exports the character in an A-pose for Mixamo
 blender/prep_meshy.py         shrinks the raw Meshy street models into meshy/street/*.glb
 mixamo/                       the Mixamo-rigged character with Waving and Breathing Idle clips
 web/                          the static three.js page (no build step)
+web/api/                      small Vercel Functions: the display case's projects, the shared guestbook board, the visitor counter, shared tallies
+db/                           the database tables (Neon Postgres, connected through Vercel)
 ```
 
 **Rebuild the model and the web files** (Blender 4.2 or newer):
@@ -44,13 +46,17 @@ web/                          the static three.js page (no build step)
 /Applications/Blender.app/Contents/MacOS/Blender -b out/storefront_day.blend -P blender/export_web.py -- web
 ```
 
-**Run the page locally:**
+**Run the page locally** (with the API, so it reads the database; the first run links the Vercel project and pulls its settings into `web/.env.local`):
 
 ```bash
-python3 -m http.server 5173 -d web
+cd web && npm install && vercel dev --listen 5173
 ```
 
-**Edit the text on the cards** in [web/content.js](web/content.js). More detail on the Blender side is in [blender/README.md](blender/README.md).
+**Edit the text on the cards** in [web/content.js](web/content.js).
+
+**Edit what's in the display case** in the Neon console (Vercel → Storage → nakang-db → Open in Neon → Tables → `projects`): one row per project, in `position` order across the top shelf then the bottom (8 spots). `model` picks the 3D model: a Blender one such as `ipod_classic`, or a shape, `sphere`, `cube` or `pyramid`; left empty it's a sphere. The site shows changes within a minute. The tables are described in [db/](db/).
+
+**The guestbook board** is shared: every save adds a row to the `guestbook` table and the site shows the newest. The last 50 are kept, so to undo a spoiled board, delete the rows newer than the good one. More detail on the Blender side is in [blender/README.md](blender/README.md).
 
 ## Versioning and releases
 

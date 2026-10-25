@@ -18,7 +18,7 @@
             background: var(--paper); box-shadow: 0 4px 14px rgba(0,0,0,.15); font-weight: 600; transition: opacity .4s; pointer-events: none; }
     #tip { position: fixed; padding: 3px 10px; border-radius: 999px; background: var(--ink); color: var(--paper); font-size: 13px;
            pointer-events: none; opacity: 0; transform: translate(-50%, -150%); transition: opacity .15s; white-space: nowrap; }
-    .bubble { position: fixed; width: min(320px, calc(100vw - 32px)); padding: 16px 18px 18px; border-radius: 20px; background: var(--paper);
+    .bubble { position: fixed; width: max-content; min-width: 150px; max-width: min(320px, calc(100vw - 32px)); padding: 16px 18px 18px; border-radius: 20px; background: var(--paper);
               box-shadow: 0 10px 30px rgba(0,0,0,.2); transform-origin: 50% 100%; animation: pop .22s cubic-bezier(.2,1.4,.4,1); }
     .bubble::after { content: ""; position: absolute; left: var(--tail, 50%); bottom: -9px; width: 18px; height: 18px; background: var(--paper);
                      transform: translateX(-50%) rotate(45deg); border-radius: 0 0 4px 0; }
@@ -27,7 +27,7 @@
     .bubble[data-tail="left"]::after { left: -9px; }
     .bubble[data-tail="right"]::after { right: -9px; }
     .bubble[data-tail="none"]::after { display: none; }
-    .bubble h2 { margin: 0 0 6px; font: 800 20px/1.1 "Archivo", sans-serif; font-stretch: 125%; }
+    .bubble h2 { margin: 0 0 6px; padding-right: 26px; font: 800 20px/1.1 "Archivo", sans-serif; font-stretch: 125%; }
     .bubble p { margin: 0; }
     .bubble table { width: 100%; border-collapse: collapse; margin-top: 4px; }
     .bubble td { padding: 5px 0; border-bottom: 1px dashed #d9d3c4; }
@@ -40,7 +40,7 @@
     /* first-visit tutorial */
     #tour { position: fixed; inset: 0; display: grid; place-items: end center; padding: 0 16px 32px; background: rgba(20,18,16,.35); z-index: 5; }
     #tour[hidden] { display: none; }
-    #tour .bubble { position: static; animation-duration: .28s; display: flex; flex-direction: column; min-height: 250px; } /* same height every step, so Next stays under the thumb */
+    #tour .bubble { position: static; width: min(320px, calc(100vw - 32px)); animation-duration: .28s; display: flex; flex-direction: column; min-height: 250px; } /* same height every step, so Next stays under the thumb */
     #tour .bubble::after { display: none; }
     #tour .step { font-size: 12px; color: #7a7266; margin-bottom: 4px; letter-spacing: .04em; }
     #tour .icon { font-size: 34px; line-height: 1; margin-bottom: 8px; }
@@ -207,6 +207,6 @@
   <div id="loading" role="progressbar" aria-label="Loading the shop" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
     <div class="sign"><h1>NAKANG</h1><div class="bar"><i></i></div><small>Opening the shop… 0%</small></div>
   </div>
-  <script type="module" src="main.js?v=113"></script>
+  <script type="module" src="main.js?v=136"></script>
 </body>
 </html>

@@ -11,8 +11,9 @@ Options after `--`:
 Conventions the website relies on:
     * Objects whose name starts with HOT_ are clickable. Each carries a custom
       property `hotspot` (exported to glTF extras) that the site maps to content.
-    * Empties named SLOT_01..SLOT_06 mark the display-case spots for projects.
-      Add a project = add an entry to PROJECTS + a builder in PROJECT_BUILDERS.
+    * Empties named SLOT_01..SLOT_08 mark the display-case spots (4 a shelf). What sits in them comes from the
+      site's database (the projects table, see db/projects.sql): a project's `model` names a TPL_project_<model>
+      template built here from PROJECT_BUILDERS; with no model the page puts a sphere there.
     * Units are metres. Facade front sits on y = 0, street runs toward -Y, Z is up.
 """
 
@@ -34,11 +35,6 @@ EXTRA_W = 1.8
 # First font that loads wins. Archivo Expanded ExtraBold (Google Fonts, OFL) ships in blender/fonts/.
 SIGN_FONTS = [os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "ArchivoExpanded-ExtraBold.ttf"),
               "/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/System/Library/Fonts/Supplemental/DIN Alternate Bold.ttf"]
-
-# One entry per project on the display shelf, in slot order.
-PROJECTS = [
-    {"id": "iport", "builder": "ipod_classic", "url": "https://iport-pi.vercel.app/"},
-]
 
 PALETTE = {
     "concrete": "#d9d6cf", "concrete_dark": "#c9c5bc", "wall": "#f4f2ec", "block_a": "#e7e3da",
@@ -273,7 +269,7 @@ def smooth_weights(ob, repeat=6, factor=0.5):
 def retarget(src, tgt, name, move_hips=False):
     """Copy an animation between two Mixamo-named skeletons whose rest poses differ: each bone gets the source's
     world-space rotation change from its own rest, applied on top of the target's rest. The hips rise and sink as in
-    the clip, measured from the source standing at rest and scaled to the target's height, so bent knees or a crouch
+    the clip, measured from the source standing at rest (sideways: from the clip's first frame) and scaled to the target's height, so bent knees or a crouch
     don't lift his feet off the floor; with move_hips they also move sideways (a dance's sway). Returns the new action."""
     from mathutils import Matrix
     act = src.animation_data.action
@@ -294,6 +290,8 @@ def retarget(src, tgt, name, move_hips=False):
     hips = "mixamorig:Hips"
     h0 = src.matrix_world @ src.data.bones[hips].head_local  # standing, feet on the ground
     ratio = (tgt.matrix_world @ tgt.data.bones[hips].head_local).z / h0.z
+    scene.frame_set(f0)  # sideways, though, from where the clip starts: a dance doesn't start over the rest spot
+    h0.xy = (src.matrix_world @ src.pose.bones[hips].head).xy
     for f in range(f0, f1 + 1, 2):
         scene.frame_set(f)
         for n in names:  # tgt.data.bones lists parents before children
@@ -1085,9 +1083,10 @@ def build_storefront():
     box("glass_fixed", (1.23 + EXTRA_W, 0.02, 3.4), (1.015 + EXTRA_W / 2, 0, 1.87), glass, bevel=0)
     # the door's origin is its hinge (right edge), so the page can swing it open into the shop
     door = empty("HOT_door", (2.36 + EXTRA_W + 0.64, -0.02, 0.2), hotspot="door")
-    box("door_glass", (1.28, 0.02, 3.3), (-0.64, 0, 1.65), glass, parent=door, bevel=0)
-    for name, size, loc in [("door_f_l", (0.06, 0.06, 3.3), (-1.28, 0, 1.65)), ("door_f_r", (0.06, 0.06, 3.3), (0, 0, 1.65)),
-                            ("door_f_b", (1.3, 0.06, 0.12), (-0.64, 0, 0.06)), ("door_f_t", (1.3, 0.06, 0.06), (-0.64, 0, 3.3))]:
+    dh = 3.41  # up to the top beam's underside (3.64): the top rail meets it, no gap
+    box("door_glass", (1.28, 0.02, dh), (-0.64, 0, dh / 2), glass, parent=door, bevel=0)
+    for name, size, loc in [("door_f_l", (0.06, 0.06, dh), (-1.28, 0, dh / 2)), ("door_f_r", (0.06, 0.06, dh), (0, 0, dh / 2)),
+                            ("door_f_b", (1.3, 0.06, 0.12), (-0.64, 0, 0.06)), ("door_f_t", (1.3, 0.06, 0.06), (-0.64, 0, dh))]:
         box(name, size, loc, frame, parent=door, bevel=0.01)
     cyl("door_handle", 0.025, 0.9, (-1.14, -0.1, 1.5), mat("steel", rough=0.25, metal=0.9), parent=door)
     box("doormat", (1.2, 0.6, 0.02), (2.36 + EXTRA_W, -0.45, 0.36), mat("mat", rough=0.95), bevel=0.01)
@@ -1462,7 +1461,7 @@ def vinyl_shelf(name, loc, cols=3, rows=5, cw=0.4, ch=0.4, d=0.35, seed=5):
             if kind == 0:  # one record face-out, leaning on the back
                 box(f"{tag}_face", (0.31, 0.012, 0.31), (xc, d / 2 - t - 0.05, z + 0.16), sleeve(k), parent=g, bevel=0.003, rot=(-8, 0, 0), uv_fit="xz")
             elif kind == 1:  # records filed spine-out, plus one face-out at the end
-                n = rnd.randint(8, 14)
+                n = rnd.randint(5, 8)  # spines + the face-out at the end fit inside the cubby (8 x 13.5 mm + 0.25 < 0.38)
                 for j in range(n):
                     box(f"{tag}_spine_{j}", (0.012, 0.3, 0.31), (x0 + 0.02 + j * 0.0135, 0, z + 0.155),
                         mat(f"book_{(k + j) % len(BOOK_COLOURS)}", color=BOOK_COLOURS[(k + j) % len(BOOK_COLOURS)], rough=0.6), parent=g, bevel=0.002)
@@ -1588,8 +1587,9 @@ def dracaena(name, loc, scale=1.0):
     return g
 
 
-def bird_of_paradise(name, loc):
-    """Long stems fanning forward and sideways (not into the wall) with banana-like paddle leaves, dark concrete pot."""
+def bird_of_paradise(name, loc, size=0.75):
+    """Long stems fanning forward and sideways (not into the wall) with banana-like paddle leaves, dark concrete pot.
+    size scales the stems and leaves (not the pot)."""
     g = empty(name, loc)
     cyl(f"{name}_pot", 0.22, 0.42, (0, 0, 0.21), mat("concrete_dark", rough=0.8), parent=g, r2=0.2)
     soil = Vector((0, 0, 0.42))
@@ -1598,10 +1598,11 @@ def bird_of_paradise(name, loc):
         return Euler((radians(tilt), 0, radians(yaw)), "XYZ").to_matrix() @ Vector((0, 0, length))
 
     for k, (tilt, yaw, s) in enumerate(((8, 0, 0.95), (22, 65, 0.75), (20, -65, 0.85), (26, 115, 0.65), (18, -35, 0.8), (12, 30, 1.05))):
+        s *= size
         cyl(f"{name}_stem_{k}", 0.012, s, tuple(soil + out(tilt, yaw, s / 2)), mat("leaf", rough=0.7), parent=g, rot=(tilt, 0, yaw))
-        c = soil + out(tilt, yaw, s) + out(tilt + 10, yaw, 0.28)
+        c = soil + out(tilt, yaw, s) + out(tilt + 10, yaw, 0.28 * size)
         ball(f"{name}_leaf_{k}", 1.0, tuple(c), mat("leaf_dark" if k % 2 else "leaf", rough=0.6), parent=g,
-             scale=(0.1, 0.014, 0.28), rot=(tilt + 10, 0, yaw))
+             scale=(0.1 * size, 0.014, 0.28 * size), rot=(tilt + 10, 0, yaw))
     return g
 
 
@@ -1836,17 +1837,18 @@ def build_interior():
 
 # ---------------------------------------------------------------- projects on the shelf
 
-SLOT_POSITIONS = [(-2.5, 0.0, 1.175), (-1.5, 0.0, 1.175), (-0.5, 0.0, 1.175),
-                  (-2.5, 0.0, 0.425), (-1.5, 0.0, 0.425), (-0.5, 0.0, 0.425)]
+# 4 a shelf, two shelves: the case's inside (x -2.97..-0.03) split into 4 equal bays, top shelf first
+SLOT_POSITIONS = [(-2.97 + 0.735 * (c + 0.5), 0.0, z) for z in (1.175, 0.425) for c in range(4)]
 
 
-def ipod_classic(parent, pid):
-    """iPod classic (black), oversized toy scale: real 61.8 x 103.5 x 10.5 mm, here x6."""
-    body = box(f"{pid}_body", (0.37, 0.065, 0.62), (0, 0, 0.33), mat("ipod", rough=0.35, metal=0.6), parent=parent, bevel=0.04, rot=(-8, 0, 0))
-    box(f"{pid}_screen", (0.29, 0.008, 0.22), (0, -0.033, 0.155), mat("ipod_screen", rough=0.3, emit=1.2), parent=body, bevel=0.006)
-    cyl(f"{pid}_wheel", 0.12, 0.008, (0, -0.033, -0.13), mat("ipod_wheel", rough=0.5), parent=body, rot=(90, 0, 0), bevel=0.003)
-    cyl(f"{pid}_button", 0.045, 0.01, (0, -0.036, -0.13), mat("ipod", rough=0.35, metal=0.6), parent=body, rot=(90, 0, 0), bevel=0.003)
-    box(f"{pid}_label", (0.26, 0.02, 0.07), (0, -0.2, 0.035), mat("white"), parent=parent, bevel=0.006, rot=(-20, 0, 0))
+def ipod_classic(parent, pid, k=4 / 6):
+    """iPod classic (black), oversized toy scale: real 61.8 x 103.5 x 10.5 mm, here x4 (k scales the old x6 build)."""
+    S = lambda *v: tuple(x * k for x in v)  # noqa: E731
+    body = box(f"{pid}_body", S(0.37, 0.065, 0.62), S(0, 0, 0.33), mat("ipod", rough=0.35, metal=0.6), parent=parent, bevel=0.04 * k, rot=(-8, 0, 0))
+    box(f"{pid}_screen", S(0.29, 0.008, 0.22), S(0, -0.033, 0.155), mat("ipod_screen", rough=0.3, emit=1.2), parent=body, bevel=0.006 * k)
+    cyl(f"{pid}_wheel", 0.12 * k, 0.008 * k, S(0, -0.033, -0.13), mat("ipod_wheel", rough=0.5), parent=body, rot=(90, 0, 0), bevel=0.003 * k)
+    cyl(f"{pid}_button", 0.045 * k, 0.01 * k, S(0, -0.036, -0.13), mat("ipod", rough=0.35, metal=0.6), parent=body, rot=(90, 0, 0), bevel=0.003 * k)
+    box(f"{pid}_label", S(0.26, 0.02, 0.07), S(0, -0.2, 0.035), mat("white"), parent=parent, bevel=0.006 * k, rot=(-20, 0, 0))
 
 
 PROJECT_BUILDERS = {"ipod_classic": ipod_classic}
@@ -2184,16 +2186,12 @@ def build_templates():
 
 
 def build_projects():
+    """The case's spots, and one parked template per project model: the page fills the spots from the database."""
     use_collection("Projects")
     for i, (x, y, z) in enumerate(SLOT_POSITIONS):
-        slot = empty(f"SLOT_{i + 1:02d}", (x, y, z))
-        if i < len(PROJECTS):
-            p = PROJECTS[i]
-            holder = empty(f"HOT_project_{p['id']}", (0, 0, 0), parent=slot, hotspot=f"project:{p['id']}")
-            holder["url"] = p["url"]
-            PROJECT_BUILDERS[p["builder"]](holder, p["id"])
-        else:
-            box(f"SLOT_{i + 1:02d}_riser", (0.3, 0.22, 0.04), (0, 0, 0.02), mat("plywood", rough=0.7), parent=slot, bevel=0.01)
+        empty(f"SLOT_{i + 1:02d}", (x, y, z))
+    for i, (model, build) in enumerate(PROJECT_BUILDERS.items()):
+        build(empty(f"TPL_project_{model}", (0, 100 + i * 4, 0)), model)  # far behind the building, like TPL_*
 
 
 # ---------------------------------------------------------------- light, camera, render

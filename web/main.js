@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { cards, site, drinks } from "./content.js?v=24";
+import { cards, site, drinks } from "./content.js?v=25";
 import { createSound, createStreetLife } from "./life.js?v=25";
 import { startBoard, legalMoves, play, botMove } from "./checkers.js?v=1";
 
@@ -21,11 +21,12 @@ document.body.style.background = "#" + P.sky.toString(16).padStart(6, "0");
 // ---------------------------------------------------------------- renderer, scene, lights
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 const phone = matchMedia("(pointer: coarse)").matches || Math.min(innerWidth, innerHeight) < 600;
-renderer.setPixelRatio(Math.min(devicePixelRatio, phone ? 1.5 : 2)); // phones: fewer pixels, steadier frame rate
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); // measured: 2x took 21 ms a frame, 1.5x 8 ms, and looks the same
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.NoToneMapping; // like Blender's "Standard" view: keeps the sign's lemon yellow saturated
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = false; // most of the scene stands still: the loop redraws the shadows every other frame
 document.body.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -64,11 +65,14 @@ function loaded(pct) { // the bar and the number on the loading screen
   loading.querySelector("small").textContent = `Opening the shop… ${pct}%`;
   loading.setAttribute("aria-valuenow", pct);
 }
-const [gltf, rig] = await Promise.all([
+const [gltf, rig, projects] = await Promise.all([
   new GLTFLoader()
     .setDRACOLoader(new DRACOLoader().setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/gltf/"))
     .loadAsync("storefront.glb", (e) => e.total && loaded(Math.min(99, (e.loaded / e.total) * 100))), // 100 once it's all set up
   fetch("rig.json").then((r) => r.json()),
+  // the display case's contents: the projects table in the database (db/projects.sql), served by api/projects.js
+  fetch("/api/projects", { cache: "no-cache" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    .catch((e) => { console.warn("Couldn't load the display case's projects:", e); return []; }),
 ]);
 scene.add(gltf.scene);
 gltf.scene.traverse((o) => {
@@ -105,6 +109,7 @@ function toggleLamp(o) {
   l.light.visible = l.on;
   l.mesh.material.emissiveIntensity = l.on ? l.glow : 0;
 }
+if (timeKey === "day") toggleLamp(scene.getObjectByName("HOT_wall_lamp")); // off in the daytime; a tap still turns it on
 
 // warm LED strips in a ceiling cove: a glowing line along the top of the back and side walls, and the soft wash it
 // throws down each wall (a gradient drawn on the wall, not a real light; things in front of the wall hide it)
@@ -177,10 +182,96 @@ const recordSpin = ["HOT_record_disc", "HOT_record_label"].map((n) => scene.getO
 const musicOn = () => !!(audio && !audio.paused) || !!synth?.on;
 scene.getObjectByName("vinyl_shelf").userData.hotspot = "records";
 
+// ---------------------------------------------------------------- the display case, filled from the database
+// Each row takes the next spot (SLOT_01..08, top shelf first). Its model is a TPL_project_<model> template built in
+// Blender, or a plain shape: sphere, cube or pyramid (square / triangle work too); no model, or one the scene doesn't
+// have, gets a sphere. Empty spots keep a plywood riser.
+{
+  let ply;
+  scene.getObjectByName("case_shelf_low").traverse((o) => (ply ??= o.material));
+  const riser = new THREE.BoxGeometry(0.3, 0.04, 0.22);
+  const SHAPES = { // about the iPod's height, each standing on the shelf (geometry, lift, turn)
+    sphere: [new THREE.SphereGeometry(0.18, 40, 20), 0.18, 0],
+    cube: [new THREE.BoxGeometry(0.3, 0.3, 0.3), 0.15, 0.5],
+    pyramid: [new THREE.ConeGeometry(0.22, 0.38, 3), 0.19, 0.4], // three sides: a triangle from the front
+  };
+  SHAPES.square = SHAPES.box = SHAPES.cube; SHAPES.triangle = SHAPES.pyramid; SHAPES.ball = SHAPES.circle = SHAPES.sphere;
+  // a colour per project, picked from the shop's colours by its id: each shape differs, and keeps its colour every visit
+  const COLOURS = [0xffe100, 0xff8418, 0x2f6fd8, 0xd8342c, 0xff6fa8, 0x7fa83a, 0x8e5bd6, 0x2bb3a3];
+  const colour = (id) => COLOURS[[...id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7) % COLOURS.length];
+  for (let i = 0; i < 8; i++) {
+    const slot = scene.getObjectByName(`SLOT_${String(i + 1).padStart(2, "0")}`), p = projects[i];
+    if (!p) {
+      const r = new THREE.Mesh(riser, ply);
+      r.position.y = 0.02; r.receiveShadow = true;
+      slot.add(r);
+      continue;
+    }
+    cards[`project:${p.id}`] = { title: p.title, body: p.body, ...(p.url && { link: { label: p.link_label || `Open ${p.title}`, url: p.url } }) };
+    const tpl = p.model && scene.getObjectByName(`TPL_project_${p.model}`);
+    let item = tpl?.clone();
+    if (!item) {
+      const [geo, lift, turn] = SHAPES[p.model?.trim().toLowerCase()] || SHAPES.sphere;
+      const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: colour(p.id), roughness: 0.3 }));
+      m.position.y = lift; m.rotation.y = turn; m.castShadow = m.receiveShadow = true;
+      item = new THREE.Group().add(m);
+    }
+    item.position.set(0, 0, 0);
+    item.name = `HOT_project_${p.id}`;
+    item.userData = { hotspot: `project:${p.id}` };
+    slot.add(item);
+  }
+  const tpls = [];
+  scene.traverse((o) => o.name.startsWith("TPL_project_") && tpls.push(o));
+  for (const o of tpls) o.removeFromParent(); // the parked originals
+}
+
+// ---------------------------------------------------------------- tallies every visitor shares (api/counters.js)
+// cat pets ("cat"), drinks ordered ("drink:<id>") and checkers results ("checkers:<level>:<win|lose|draw>")
+let counts = null; // null until they load; the cat, the menu and the checkers score only show numbers once they have
+fetch("/api/counters", { cache: "no-cache" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+  .then((c) => (counts = c)).catch((e) => console.warn("Couldn't load the shop's tallies:", e));
+function bump(name) { // add one here straight away, then take the server's number
+  if (counts) counts[name] = (counts[name] || 0) + 1;
+  fetch("/api/counters", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) })
+    .then((r) => r.ok && r.json()).then((d) => d && counts && (counts[name] = d.n)).catch(() => {});
+}
+const times = (n) => `${n.toLocaleString("en-US")} time${n === 1 ? "" : "s"}`;
+
+// ---------------------------------------------------------------- visitor counter: white lettering on the door glass
+// Counts each visitor once a day (api/visits.js, the visits table); a dash until the count comes back, or if it can't.
+// On the door near the hinge, at eye height, like a shop's vinyl lettering, so it swings open with the door.
+{
+  const W = 512, H = 256, cv = Object.assign(document.createElement("canvas"), { width: W, height: H });
+  const g = cv.getContext("2d"), tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+  let shown = null;
+  const draw = (n = shown) => {
+    shown = n;
+    g.clearRect(0, 0, W, H);
+    g.textAlign = "center"; g.textBaseline = "middle"; g.fillStyle = "#ffffff";
+    g.font = "800 40px Archivo, system-ui, sans-serif"; g.letterSpacing = "8px";
+    g.fillText("VISITORS", W / 2 + 4, 70); g.letterSpacing = "0px";
+    g.font = "800 110px Archivo, system-ui, sans-serif";
+    g.fillText(n == null ? "–" : n.toLocaleString("en-US"), W / 2, 168);
+    tex.needsUpdate = true;
+  };
+  draw();
+  document.fonts?.load("800 110px Archivo").then(() => draw()); // the canvas needs the page font loaded first
+  const label = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.12), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+  label.renderOrder = 1; // after the door glass, and without hiding it: no box round the letters
+  label.position.set(-0.34, 1.15, 0.013); // door's own frame: hinge at x 0, the glass toward -x, the street side +z
+  label.name = "visitor_counter";
+  scene.getObjectByName("HOT_door").add(label);
+  fetch("/api/visits", { method: "POST" }).then((r) => (r.ok ? r.json() : null)).then((d) => d && draw(d.total))
+    .catch((e) => console.warn("Couldn't count the visit:", e));
+}
+
 const door = scene.getObjectByName("HOT_door");
 let doorOpen = false, doorAmt = 0;
 
-// guestbook board: visitors draw in a window; the drawing is painted onto the board (kept in this browser)
+// guestbook board: visitors draw in a window; the drawing is painted onto the board and saved for everyone
+// (the guestbook table in the database, through api/board.js): every visitor sees the newest one
 const boardMesh = firstMesh(scene.getObjectByName("HOT_board_panel"));
 boardMesh.material = boardMesh.material.clone();
 const BOARD_BG = "#2b4c8c";
@@ -193,10 +284,20 @@ function paintBoard(src) {
   boardMesh.material.color.set(0xffffff);
   boardMesh.material.needsUpdate = true;
 }
-try {
-  const saved = localStorage.getItem("nakang-board");
-  if (saved) { const img = new Image(); img.onload = () => paintBoard(img); img.src = saved; }
-} catch {}
+let boardAt = null; // when the picture on the board was put up
+async function loadBoard() { // true if a newer picture went up
+  try {
+    const row = await (await fetch("/api/board", { cache: "no-cache" })).json();
+    if (!row || row.created_at === boardAt) return false;
+    const img = new Image();
+    img.src = row.image;
+    await img.decode();
+    boardAt = row.created_at;
+    paintBoard(img);
+    return true;
+  } catch (e) { console.warn("Couldn't load the guestbook board:", e); return false; }
+}
+loadBoard();
 
 loaded(100);
 setTimeout(() => loading.classList.add("up"), 250); // a beat at 100%, then the shutter rolls up
@@ -215,13 +316,15 @@ const inside = new THREE.CatmullRomCurve3([close, new THREE.Vector3(3.2, 1.8, 3.
 const doorLook = new THREE.Vector3(4.16, 1.55, -1.5), counterLook = new THREE.Vector3(-1.0, 1.75, -1.6);
 const scrollEl = document.getElementById("scroll");
 const OUT = 3, IN = 4; // screen-heights of scrolling for the street walk and the walk inside
+const DOORWAY = 0.55; // how far along the walk inside you're through the door
 let progress = 0, inProgress = 0;
 let director = null; // { pos, look, fov } while the tour or the table owns the camera
 const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
 let camFov = 30, camReady = false;
 function placeCamera() {
   const t = THREE.MathUtils.clamp(scrollY / (OUT * innerHeight), 0, 1);
-  const u = doorOpen ? THREE.MathUtils.clamp((scrollY - OUT * innerHeight) / (IN * innerHeight), 0, 1) : 0;
+  const u = THREE.MathUtils.clamp((scrollY - OUT * innerHeight) / (IN * innerHeight), 0, 1); // the page only grows once the door's open
+  if (!doorOpen && u > 0 && u < DOORWAY) toggleDoor(); // walking back out to a shut door: it opens for you
   progress += (t - progress) * 0.12; // a little lag so the walk feels like steps, not a slider
   inProgress += (u - inProgress) * 0.12;
   const look = shopFront.clone().setY(THREE.MathUtils.lerp(2.6, 1.9, ease(progress)));
@@ -279,7 +382,7 @@ function lockScroll(on) { document.documentElement.style.overflow = on ? "hidden
 function toggleDoor() {
   doorOpen = !doorOpen;
   if (doorOpen) scrollEl.style.height = (OUT + IN + 1) * 100 + "vh";
-  else { // step back out to the window first, then shrink the page
+  else if (scrollY < (OUT + DOORWAY * IN) * innerHeight) { // shut from outside: step back to the window, then shrink the page
     if (scrollY > OUT * innerHeight) scrollTo({ top: OUT * innerHeight });
     scrollEl.style.height = (OUT + 1) * 100 + "vh";
   }
@@ -482,12 +585,16 @@ function openBoard() {
   const dlg = document.getElementById("board");
   const cv = document.getElementById("board-canvas"), ctx = cv.getContext("2d");
   const fresh = () => { ctx.fillStyle = BOARD_BG; ctx.fillRect(0, 0, cv.width, cv.height); };
-  fresh();
-  const tex = boardMesh.material.map;
-  if (tex?.image) ctx.drawImage(tex.image, 0, 0, cv.width, cv.height); // keep drawing on what's already there
-  let ink = "#f4f2ec", size = 6, last = null;
+  const current = () => { // keep drawing on what's already there
+    fresh();
+    const tex = boardMesh.material.map;
+    if (tex?.image) ctx.drawImage(tex.image, 0, 0, cv.width, cv.height);
+  };
+  current();
+  let ink = "#f4f2ec", size = 6, last = null, drawn = false;
+  loadBoard().then((newer) => newer && !drawn && current()); // someone else may have drawn since the page loaded
   const at = (e) => { const b = cv.getBoundingClientRect(); return [(e.clientX - b.left) * cv.width / b.width, (e.clientY - b.top) * cv.height / b.height]; };
-  cv.onpointerdown = (e) => { cv.setPointerCapture(e.pointerId); last = at(e); cv.onpointermove(e); };
+  cv.onpointerdown = (e) => { drawn = true; cv.setPointerCapture(e.pointerId); last = at(e); cv.onpointermove(e); };
   cv.onpointermove = (e) => {
     if (!last) return;
     const p = at(e);
@@ -500,15 +607,27 @@ function openBoard() {
     ink = b.dataset.ink; size = ink === BOARD_BG ? 26 : 6; // the board colour works as an eraser
     dlg.querySelectorAll("[data-ink]").forEach((x) => x.setAttribute("aria-pressed", x === b));
   }));
-  document.getElementById("board-clear").onclick = fresh;
+  document.getElementById("board-clear").onclick = () => { drawn = true; fresh(); };
   document.getElementById("board-cancel").onclick = () => dlg.close();
-  document.getElementById("board-done").onclick = () => {
+  const done = document.getElementById("board-done");
+  done.textContent = "Stick it on the board";
+  done.onclick = async () => {
     const copy = document.createElement("canvas");
     copy.width = cv.width; copy.height = cv.height;
     copy.getContext("2d").drawImage(cv, 0, 0);
-    paintBoard(copy);
-    try { localStorage.setItem("nakang-board", copy.toDataURL("image/png")); } catch {}
-    dlg.close();
+    done.disabled = true;
+    done.textContent = "Sticking it up…";
+    try { // WebP where the browser can make it (Safari falls back to PNG)
+      const r = await fetch("/api/board", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: copy.toDataURL("image/webp", 0.85) }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      paintBoard(copy);
+      boardAt = null; // ours is the newest now
+      dlg.close();
+    } catch (e) {
+      done.textContent = /wait/i.test(e.message) ? "Wait a few seconds…" : "Couldn't save. Try again";
+      console.warn("Couldn't save the board:", e);
+    } finally { done.disabled = false; }
   };
   dlg.showModal();
 }
@@ -519,7 +638,8 @@ let purr = null;
 function petCat(r) {
   purr?.stop();
   purr = sound.play("purr", { volume: 0.9 });
-  showBubble({ title: "Purrr…" }, r, 1600);
+  bump("cat");
+  showBubble({ title: "Purrr…", ...(counts && { body: `Petted ${times(counts.cat)}` }) }, r, 1600);
 }
 function animateCat(now) {
   const k = Math.sin(now * 0.0017); // a slow breath, about one every 4 s
@@ -532,7 +652,8 @@ function animateCat(now) {
 const chapters = [
   { kicker: "About", ...cards.about, body: cards.about.lines.join(" ") },
   { kicker: "Skills", ...cards.skills, title: "What I work with" },
-  ...Object.keys(cards).filter((k) => k.startsWith("project:")).map((k) => ({ kicker: "Projects", ...cards[k] })),
+  ...[...new Set([...projects.slice(0, 8).map((p) => `project:${p.id}`), ...Object.keys(cards).filter((k) => k.startsWith("project:"))])]
+    .map((k) => ({ kicker: "Projects", ...cards[k] })), // the case's first, in its order
   { kicker: "Interests", ...cards.interests },
   { kicker: "Contact", ...cards.contact },
 ];
@@ -781,8 +902,10 @@ walkAction.weight = danceAction.weight = sitAction.weight = 0;
 // seated, his arms hang at his sides as in the standing idle (the clip's rest on the knees reached through the table)
 const ARMS = ["Shoulder", "Arm", "ForeArm", "Hand"].flatMap((n) => ["Left", "Right"].map((s) => {
   const bone = scene.getObjectByName(`mixamorig${s}${n}`), v = clip("idle").tracks.find((t) => t.name === `${bone.name}.quaternion`).values;
-  return { bone, idle: new THREE.Quaternion(v[0], v[1], v[2], v[3]), mixed: bone.quaternion.clone() };
+  const w = clip("wave").tracks.find((t) => t.name === `${bone.name}.quaternion`); // seated, a wave moves just his arms
+  return { bone, idle: new THREE.Quaternion(v[0], v[1], v[2], v[3]), wave: w?.createInterpolant(), mixed: bone.quaternion.clone() };
 }));
+const _armQ = new THREE.Quaternion(), _waveQ = new THREE.Quaternion();
 const me = scene.getObjectByName("HOT_character");
 const pickup = scene.getObjectByName("serve").getWorldPosition(new THREE.Vector3()); // the PICKUP tray on the counter
 const PICKUP_HEADING = Math.atan2(pickup.x - me.position.x, pickup.z - me.position.z);
@@ -801,7 +924,7 @@ const PICKUP_HEADING = Math.atan2(pickup.x - me.position.x, pickup.z - me.positi
 // the whole clip) his joints stay 8 cm clear of the counter, the table and the plant
 // For a game of checkers he carries on past the dance spot, behind the stools, and sits on the stool across the board
 // from you (SIT: where his feet go, and how far the clip's sitting pose has to drop to rest on the seat).
-const SIT = { x: 2.57, z: -3.41, dy: 0.015 }; // measured: puts his hips over the stool's centre, his seat on its top
+const SIT = { x: 2.59, z: -3.35, dy: 0.008 }; // measured: puts his hips over the stool's centre, his seat on its top
 const ROUTE = [[-1.0, -1.45], [-1.0, -3.2], [-0.1, -3.2], [1.2, -3.7], [SIT.x, -3.7], [SIT.x, SIT.z]].map(([x, z]) => new THREE.Vector3(x, 0, z));
 const legLen = ROUTE.slice(1).map((p, i) => p.distanceTo(ROUTE[i]));
 const danceLen = legLen[0] + legLen[1], routeLen = legLen.reduce((a, b) => a + b);
@@ -858,7 +981,14 @@ function animateCharacter(dt) {
   for (const a of ARMS) a.bone.quaternion.copy(a.mixed);
   mixer.update(dt);
   headMixed.copy(headBone.quaternion);
-  for (const a of ARMS) { a.mixed.copy(a.bone.quaternion); a.bone.quaternion.slerp(a.idle, sitAmt); }
+  const wt = waveAction.time, wd = waveAction.getClip().duration; // the wave, eased in and out
+  const ww = waveAction.isRunning() ? THREE.MathUtils.clamp(Math.min(wt / 0.35, (wd - wt) / 0.5), 0, 1) : 0;
+  for (const a of ARMS) {
+    a.mixed.copy(a.bone.quaternion);
+    _armQ.copy(a.idle);
+    if (ww && a.wave) _armQ.slerp(_waveQ.fromArray(a.wave.evaluate(wt)), ww);
+    a.bone.quaternion.slerp(_armQ, sitAmt);
+  }
   // eye contact: turn the head toward the camera on top of the clip, within a natural neck range, eased
   forward.set(Math.sin(me.rotation.y), 0, Math.cos(me.rotation.y));
   headBone.getWorldPosition(_hp);
@@ -868,6 +998,41 @@ function animateCharacter(dt) {
   look.slerp(new THREE.Quaternion().rotateTowards(_q, D(30 + 35 * inProgress) * Math.max(0, 1 - walkAmt - danceAmt)), 0.08);
   headBone.parent.getWorldQuaternion(_pq);
   headBone.quaternion.premultiply(_pq.clone().invert().multiply(look).multiply(_pq));
+  // after a game, seated: both arms up when he wins, head and shoulders down when he loses (eased in and out)
+  const mt = mood ? (performance.now() - mood.t0) / 1000 : 0;
+  const mw = mood ? THREE.MathUtils.clamp(Math.min(mt / 0.35, (MOOD_S - mt) / 0.6), 0, 1) * sitAmt : 0;
+  if (!mw) return;
+  const r = me.rotation.y;
+  _left.set(Math.cos(r), 0, -Math.sin(r)); // his left, and the way he faces
+  forward.set(Math.sin(r), 0, Math.cos(r));
+  for (const s of [1, -1]) { // s: his left side, then his right
+    const side = s > 0 ? "Left" : "Right";
+    if (mood.won) {
+      const pump = 0.12 * Math.sin(mt * 12); // fists pumping
+      turnWorld(scene.getObjectByName(`mixamorig${side}Shoulder`), _mq.setFromAxisAngle(forward, s * D(18) * mw)); // shrug up
+      // out to the side first, then up: one turn from hanging to overhead is near 180° and rolls the arm any old way
+      aimBone(`${side}Arm`, `${side}ForeArm`, _aim.copy(_left).multiplyScalar(s), mw);
+      aimBone(`${side}Arm`, `${side}ForeArm`, _aim.set(0, 1, 0).addScaledVector(_left, s * 0.5).addScaledVector(forward, 0.12), mw);
+      aimBone(`${side}ForeArm`, `${side}Hand`, _aim.set(0, 1, 0).addScaledVector(_left, s * (0.2 + pump)), mw);
+      turnWorld(scene.getObjectByName(`mixamorig${side}ForeArm`), _mq.setFromAxisAngle(_aim, -s * PALM_IN * mw)); // _aim: along the forearm now
+    } else turnWorld(scene.getObjectByName(`mixamorig${side}Shoulder`), _mq.setFromAxisAngle(forward, -s * D(12) * mw));
+  }
+  if (!mood.won) turnWorld(headBone, _mq.setFromAxisAngle(_left, D(28) * mw)); // chin to chest
+}
+let mood = null; // { won, t0 }: set when a game ends
+const MOOD_S = 4.5, PALM_IN = D(90); // arms up: roll the forearms so the palms face in
+const _left = new THREE.Vector3(), _aim = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3();
+const _mq = new THREE.Quaternion(), _mp = new THREE.Quaternion();
+function turnWorld(bone, q) { // rotate a bone by q given in world space
+  bone.parent.getWorldQuaternion(_mp);
+  bone.quaternion.premultiply(_mp.clone().invert().multiply(q).multiply(_mp));
+}
+function aimBone(name, childName, dir, w) { // turn a bone so its child lies along dir, by weight w
+  const bone = scene.getObjectByName(`mixamorig${name}`), child = scene.getObjectByName(`mixamorig${childName}`);
+  bone.updateWorldMatrix(true, true);
+  bone.getWorldPosition(_a);
+  child.getWorldPosition(_b);
+  turnWorld(bone, _mq.identity().slerp(new THREE.Quaternion().setFromUnitVectors(_b.sub(_a).normalize(), dir.normalize()), w));
 }
 
 // ---------------------------------------------------------------- order a drink, pick a seat, sit and look around
@@ -905,11 +1070,14 @@ let pins = [];
 let myDrink = null, seated = false, picking = null, mySeat = null;
 function drinkMenu(r) {
   closeBubble();
+  const sold = (d) => counts?.[`drink:${d.id}`] || 0;
+  const best = drinks.reduce((a, d) => (sold(d) > sold(a) ? d : a)); // the most ordered so far, by everyone
   showBubble({ title: "Menu", body: "What can I get you?",
-    actions: drinks.map((d) => ({ label: `${d.emoji} ${d.name}`, run: () => order(d) })) }, r);
+    actions: drinks.map((d) => ({ label: `${d.emoji} ${d.name}${d === best && sold(d) ? " · ★ Best seller" : ""}`, run: () => order(d) })) }, r);
 }
 function order(d) {
   closeBubble();
+  bump(`drink:${d.id}`);
   wave();
   const me = scene.getObjectByName("HOT_character");
   showBubble({ title: `${d.name}, coming right up!`, body: "Sit anywhere you like." }, screenRect(me), 1800);
@@ -1068,7 +1236,9 @@ const CK = (() => {
   const ringMat = new THREE.MeshBasicMaterial({ color: 0xffe100, depthWrite: false }); // the cap you picked
   const dotGeo = new THREE.CircleGeometry(sq * 0.18, 20).rotateX(-Math.PI / 2);
   const ringGeo = new THREE.RingGeometry(sq * 0.46, sq * 0.56, 28).rotateX(-Math.PI / 2);
-  return { board, top, at, sq, centre, capGeo, capMat, dotMat, ringMat, dotGeo, ringGeo, caps: new Map(), marks: [] };
+  const f = new THREE.Box3().setFromObject(scene.getObjectByName("fridge_top")); // between games it sits on the drinks fridge, just for show
+  const shelf = new THREE.Vector3((f.min.x + f.max.x) / 2, f.max.y, (f.min.z + f.max.z) / 2);
+  return { board, top, at, sq, centre, shelf, capGeo, capMat, dotMat, ringMat, dotGeo, ringGeo, caps: new Map(), marks: [] };
 })();
 function cap(v) { // a bottle cap for a piece; a king (ฮอส) is two caps stacked
   const m = new THREE.Mesh(CK.capGeo, CK.capMat[Math.sign(v)]);
@@ -1081,13 +1251,21 @@ function layoutCaps(b) {
   CK.caps.clear();
   b.forEach((v, i) => { if (!v) return; const m = cap(v); m.position.copy(CK.at(i)).y += 0.0035; CK.board.add(m); CK.caps.set(i, m); });
 }
-layoutCaps(startBoard());
+function shelveBoard() { // on the fridge, set up for the next game, at a casual angle; not a hotspot, so not clickable
+  layoutCaps(startBoard());
+  CK.board.position.copy(CK.shelf);
+  CK.board.rotation.y = 0.35;
+  CK.board.scale.setScalar(1);
+  scene.add(CK.board);
+}
+shelveBoard();
 
 let game = null; // { b, level, sel, moves, busy, quiet }
 const SAY = { mine: ["Gotcha!", "Mine now.", "Oops, for you."], yours: ["Nice one!", "Hey!", "Ouch."], think: ["Hmm…", "Let me see…", "Thinking…"] };
 const say = (k) => SAY[k][Math.floor(Math.random() * SAY[k].length)];
 function checkersMenu(r) {
-  showBubble({ title: "Thai checkers", body: "Fancy a game of หมากฮอส? Red caps are yours, and you go first.", actions: [
+  showBubble({ title: "Thai checkers", body: "Fancy a game of หมากฮอส? Red caps are yours, and you go first.",
+    ...(counts && { rows: ["easy", "hard"].map((l) => [l === "easy" ? "Easy, so far" : "Hard, so far", scoreLine(l)]) }), actions: [
     { label: "😌 Easy", run: () => startCheckers("easy") }, { label: "🔥 Hard", egg: true, run: () => startCheckers("hard") }] }, r);
 }
 function startCheckers(level) {
@@ -1096,8 +1274,9 @@ function startCheckers(level) {
   dancing = false; // he comes over to play instead
   game = { b: startBoard(), level, seat, sel: null, moves: [], busy: false, quiet: 0 };
   layoutCaps(game.b);
-  if (!CK.board.parent) { // it pops up onto the table
-    scene.add(CK.board);
+  if (CK.board.position.distanceTo(CK.centre) > 0.01) { // off the fridge, it pops up onto the table
+    CK.board.position.copy(CK.centre);
+    CK.board.rotation.y = 0;
     const t0 = performance.now();
     (function grow(now) {
       const k = Math.min(1, (now - t0) / 450);
@@ -1128,7 +1307,7 @@ function quitCheckers() {
   const seat = game.seat;
   clearMarks();
   game = null;
-  scene.remove(CK.board); // put away till next time
+  shelveBoard(); // back on the fridge till next time
   document.getElementById("seat-move").textContent = "Change seat";
   if (seat === null || !myDrink) return standUp();
   picking = drinks.find((d) => d.id === myDrink.userData.id); // back on your stool, drink and all
@@ -1171,12 +1350,13 @@ function hop(m, from, to, dur = 260) { // a cap hops from one square to the next
   });
 }
 async function move(mv) {
-  const side = Math.sign(game.b[mv.from]);
+  const g = game, side = Math.sign(game.b[mv.from]);
   game.busy = true;
   clearMarks();
   const m = CK.caps.get(mv.from);
   for (let k = 1; k < mv.path.length; k++) {
     await hop(m, mv.path[k - 1], mv.path[k]);
+    if (game !== g) return; // quit mid-hop: the board's already back on the fridge
     feedback(m, false); // a clack as it lands
     const gone = mv.caps[k - 1]; // the cap it just jumped (a chain takes one per hop)
     if (gone !== undefined) { const x = CK.caps.get(gone); x.scale.setScalar(0.001); }
@@ -1197,19 +1377,28 @@ async function move(mv) {
   if (next === -1) {
     checkersBar(mv.caps.length ? `Bankza: ${say("yours")}` : `Bankza: ${say("think")}`);
     game.busy = true;
-    setTimeout(() => { if (!game) return; game.busy = false; const bm = botMove(game.b, -1, game.level); move(bm); }, 650);
+    setTimeout(() => { if (game !== g) return; game.busy = false; const bm = botMove(game.b, -1, game.level); move(bm); }, 650);
   } else {
     const must = legalMoves(game.b, 1)[0].caps.length;
     checkersBar(mv.caps.length ? `Bankza: ${say("mine")}` : must ? "You must capture" : "Your move");
   }
 }
+// everyone's games against him, per level: "You 12 · Bankza 34" (draws when there are any)
+function scoreLine(level) {
+  const n = (r) => counts[`checkers:${level}:${r}`] || 0;
+  return `You ${n("win")} · Bankza ${n("lose")}${n("draw") ? ` · ${n("draw")} drawn` : ""}`;
+}
 function endCheckers(result) {
   game.busy = true;
-  checkersBar(result === "win" ? "You win! 🎉" : result === "lose" ? "Bankza wins! 😎" : "A draw 🤝", true);
+  bump(`checkers:${game.level}:${result}`);
+  checkersBar((result === "win" ? "You win! 🎉" : result === "lose" ? "Bankza wins! 😎" : "A draw 🤝") +
+    (counts ? ` Everyone so far: ${scoreLine(game.level)}` : ""), true);
   bigText(result === "win" ? "YOU WIN!" : result === "lose" ? "BANKZA WINS!" : "DRAW", result);
-  setTimeout(() => { if (game) director = boardShot(false); }, 900); // look up to see how he takes it
+  const g = game;
+  setTimeout(() => { if (game === g) director = boardShot(false); }, 900); // look up to see how he takes it
   if (result === "win") { confetti(); tune([523, 659, 784, 1047], 0.11, "triangle"); }
-  if (result === "lose") { wave(); victoryHops(); tune([392, 370, 349, 294], 0.32, "sawtooth", true); }
+  if (result !== "draw") mood = { won: result === "lose", t0: performance.now() }; // his win is your loss
+  if (result === "lose") { victoryHops(); tune([392, 370, 349, 294], 0.32, "sawtooth", true); }
 }
 function bigText(text, kind) { // pops in with a bounce, holds, and fades away
   const el = document.createElement("div");
@@ -1258,7 +1447,7 @@ function confetti() {
     return m;
   });
   let last = performance.now();
-  const t0 = last;
+  const t0 = last, g = game;
   (function fall(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     for (const m of bits) {
@@ -1268,7 +1457,7 @@ function confetti() {
       if (m.position.y < 0.018) { m.position.y = 0.018; v.set(0, 0, 0); spin.set(0, 0, 0); m.rotation.x = -Math.PI / 2; } // landed flat
       m.rotation.x += spin.x * dt; m.rotation.y += spin.y * dt; m.rotation.z += spin.z * dt;
     }
-    if (now - t0 < 4000 && CK.board.parent) return requestAnimationFrame(fall);
+    if (now - t0 < 4000 && game === g) return requestAnimationFrame(fall); // gone with the game (Quit or Play again)
     for (const m of bits) { CK.board.remove(m); m.material.dispose(); }
   })(t0);
 }
@@ -1332,7 +1521,7 @@ muteBtn.onclick = (e) => { e.stopPropagation(); sound.start(); muteBtn.textConte
 // ---------------------------------------------------------------- guided tour: the camera visits everything you can tap
 const TOUR = [
   { title: "Welcome to NAKANG", body: "A little shop for my work. I'll show you what you can tap — or scroll anytime to walk around on your own.", shot: () => ({ pos: close.clone(), look: shopFront.clone().setY(1.9), fov: rig.cams.CAM_close.fov }) },
-  { obj: "HOT_project_iport", title: "Projects", body: "Everything I've built sits in this case. Tap one to read about it and open it." },
+  { obj: "case_back", title: "Projects", body: "Everything I've built sits in this case. Tap one to read about it and open it." },
   { obj: "HOT_character", frame: { minY: 1.25 }, title: "That's me", body: "Tap to say hi, read about me, or order a drink and sit down for a bit." },
   { obj: "HOT_menu", frame: { minY: 1.35 }, title: "The menu", body: "My skills and tools, listed like a coffee menu." },
   { obj: "HOT_record", title: "Music", body: "Tap the record player to put some lofi on." },
@@ -1384,6 +1573,7 @@ function startTour(force = false) {
 
 startTour(); // after everything above is defined
 const frameClock = new THREE.Clock();
+let frameNo = 0;
 renderer.setAnimationLoop(() => {
   const dt = Math.min(frameClock.getDelta(), 0.1);
   placeCamera();
@@ -1397,5 +1587,6 @@ renderer.setAnimationLoop(() => {
   animateBounces(performance.now());
   animateCat(performance.now());
   if (bubble?.anchor?.parent) placeBubble(bubble, screenRect(bubble.anchor));
+  renderer.shadowMap.needsUpdate = frameNo++ % 2 === 0; // moving shadows (him, the cars, the birds) at 30 per second
   renderer.render(scene, camera);
 });
