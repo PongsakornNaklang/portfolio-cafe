@@ -390,7 +390,9 @@ function placeCamera() {
   camera.updateProjectionMatrix();
   const hint = document.getElementById("hint");
   hint.textContent = t > 0.9 && doorOpen ? "Scroll to step inside ↓" : "Scroll to walk to the shop ↓";
-  hint.style.opacity = director || (t > 0.9 && !doorOpen) || u > 0.95 ? 0 : 1;
+  const off = !!(director || (t > 0.9 && !doorOpen) || u > 0.95);
+  hint.style.opacity = off ? 0 : 1;
+  if (hint.inert !== off) hint.inert = off; // hidden: no taps, and out of the tab order
 }
 
 // frame an object: far enough back that all of it fits with some room around it, seen from the street side and a
@@ -490,11 +492,14 @@ function aboutBubble(actions, r) {
 addEventListener("click", (e) => {
   if (gaze.moved) return; // that was a drag to look around
   if (game && onScene(e)) return boardClick(e);
+  if (bubble?.dataset.idle && bubble.contains(e.target)) return closeBubble(); // tap what he said to put it away
   if (bubble?.contains(e.target) || e.target.closest?.("#tour, #help, #board, #book, #kofi, #mute, #seatbar")) return;
   closeBubble();
   const o = onScene(e) ? hotspotAt(e.clientX, e.clientY) : null;
   if (!o) return;
   const key = o.userData.hotspot;
+  if (["cat", "records", "honk", "bird", "chime", "guestbook"].includes(key)) foundEgg(key); // he stops hinting at it
+  if (o.name === "HOT_wall_lamp") foundEgg("wall_lamp");
   if (key === "sip") return sip();
   if (key === "seat") return sitAt(o.userData.seat);
   if (key === "honk" || key === "bird") return life.poke(o);
@@ -520,7 +525,7 @@ addEventListener("click", (e) => {
       { label: "📖 See my portfolio", run: (btn) => { const from = btn.getBoundingClientRect(); closeBubble(); openBook(from); } }];
     if (seated && SEATS[mySeat].table === "center_table") // only while you sit at the table the board goes on
       acts.push({ label: "♟ หมากฮอส?", egg: true, run: () => { closeBubble(); checkersMenu(r); } });
-    if (musicOn()) acts.push({ label: dancing ? "✋ Stop dancing" : "🕺 Dance", egg: true, run: () => { dancing = !dancing; closeBubble(); } });
+    if (musicOn()) acts.push({ label: dancing ? "✋ Stop dancing" : "🕺 Dance", egg: true, run: () => { dancing = !dancing; foundEgg("dance"); closeBubble(); } });
     return aboutBubble(acts, r);
   }
   if (key === "tip") wave(); // he waves a thank-you
@@ -544,7 +549,7 @@ function screenRect(o) {
 const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
 // a card's words: title, text, table rows and link buttons (the bubbles and the project book share it)
 const cardHTML = (c) =>
-  `<h2>${esc(c.title)}</h2>` +
+  (c.title ? `<h2>${esc(c.title)}</h2>` : "") +
   (c.body ? `<p>${esc(c.body)}</p>` : "") +
   (c.tabs?.length ? (c.tabs.length > 1 ? `<div class="tabs">${c.tabs.map((t, i) =>
     `<button class="tab" data-tab="${i}" aria-pressed="${i === 0}">${esc(t.label)}</button>`).join("")}</div>` : "") +
@@ -605,6 +610,12 @@ function placeBubble(bubble, r) {
 addEventListener("keydown", (e) => { if (e.key === "Escape") { closeBubble(); } });
 addEventListener("scroll", () => { if (bubble && !bubble.dataset.keep) { closeBubble(); } }, { passive: true });
 
+// the walk hint is a button too: tap it to walk to the shop, or once the door's open, on inside
+document.getElementById("hint").onclick = () => {
+  const atShop = scrollY >= OUT * innerHeight * 0.9;
+  scrollTo({ top: (atShop && doorOpen ? OUT + IN : OUT) * innerHeight,
+    behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+};
 document.getElementById("help").onclick = (e) => { e.stopPropagation(); startTour(true); };
 
 // ---------------------------------------------------------------- click feedback: a soft pop, a tiny buzz on phones, a squash-bounce
@@ -1022,7 +1033,7 @@ function animateDance(dt) {
 }
 
 function animateCharacter(dt) {
-  if (progress > 0.85 && !waved) { waved = true; wave(); }
+  if (progress > 0.85 && !waved) { waved = true; wave(); greet(); }
   if (progress < 0.5) waved = false; // walk away and back to get another hello
   strollToRecords(dt);
   animateDance(dt);
@@ -1045,14 +1056,23 @@ function animateCharacter(dt) {
     a.bone.quaternion.slerp(_armQ, sitAmt);
   }
   // eye contact: turn the head toward the camera on top of the clip, within a natural neck range, eased
+  // (during a look or point gesture: at what he's on about instead, turning further)
+  const stand = Math.max(0, 1 - walkAmt - danceAmt - sitAmt);
+  const gt = gest ? (performance.now() - gest.t0) / 1000 : 0;
+  if (gest && gt > gest.dur) gest = null;
+  const gw = gest ? THREE.MathUtils.clamp(Math.min(gt / 0.3, (gest.dur - gt) / 0.4), 0, 1) * stand : 0;
+  const at = gw && gest.at;
   forward.set(Math.sin(me.rotation.y), 0, Math.cos(me.rotation.y));
   headBone.getWorldPosition(_hp);
-  _dir.subVectors(camera.position, _hp).normalize();
+  _dir.subVectors(at || camera.position, _hp).normalize();
+  if (at) _dir.setY(THREE.MathUtils.clamp(_dir.y, -0.3, 0.4)).normalize(); // a glance down, not chin on chest
   _q.setFromUnitVectors(forward, _dir);
   // turns further once you're inside; walking or dancing, his head follows the move instead
-  look.slerp(new THREE.Quaternion().rotateTowards(_q, D(30 + 35 * inProgress) * Math.max(0, 1 - walkAmt - danceAmt)), 0.08);
+  look.slerp(new THREE.Quaternion().rotateTowards(_q, D(at ? 75 : 30 + 35 * inProgress) * Math.max(0, 1 - walkAmt - danceAmt)), 0.08);
   headBone.parent.getWorldQuaternion(_pq);
   headBone.quaternion.premultiply(_pq.clone().invert().multiply(look).multiply(_pq));
+  const talk = bubble?.dataset.idle ? stand : 0; // saying an idle line: a little bob of the head (his mouth can't move)
+  if (gw || talk) gesturePose(gt, gw, talk);
   // after a game, seated: both arms up when he wins, head and shoulders down when he loses (eased in and out)
   const mt = mood ? (performance.now() - mood.t0) / 1000 : 0;
   const mw = mood ? THREE.MathUtils.clamp(Math.min(mt / 0.35, (MOOD_S - mt) / 0.6), 0, 1) * sitAmt : 0;
@@ -1075,6 +1095,58 @@ function animateCharacter(dt) {
   if (!mood.won) turnWorld(headBone, _mq.setFromAxisAngle(_left, D(28) * mw)); // chin to chest
 }
 let mood = null; // { won, t0 }: set when a game ends
+// ---------------------------------------------------------------- gestures with his idle lines: look, point, nod, shrug (wave is the clip)
+let gest = null; // { kind, at: world point or null, t0, dur, side }
+const GEST_S = { look: 3, point: 2.6, nod: 1.1, shrug: 1.5 };
+const _pt = new THREE.Vector3();
+function gesture(kind, target) {
+  if (kind === "wave") return wave();
+  if (!GEST_S[kind]) return;
+  const o = target && scene.getObjectByName(target);
+  gest = { kind, t0: performance.now(), dur: GEST_S[kind], at: o ? new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3()) : null };
+}
+function gesturePose(t, w, talk) {
+  const r = me.rotation.y;
+  _left.set(Math.cos(r), 0, -Math.sin(r));
+  forward.set(Math.sin(r), 0, Math.cos(r));
+  if (talk) turnWorld(headBone, _mq.setFromAxisAngle(_left, D(2.5) * Math.sin(performance.now() / 85) * talk));
+  if (!w) return;
+  const k = gest.kind;
+  if (k === "nod") turnWorld(headBone, _mq.setFromAxisAngle(_left, D(13) * Math.sin((Math.PI * t) / 0.5) ** 2 * w));
+  if (k === "shrug") {
+    for (const s of [1, -1]) { // shoulders up, forearms out with the palms up, head to one side
+      const side = s > 0 ? "Left" : "Right";
+      turnWorld(scene.getObjectByName(`mixamorig${side}Shoulder`), _mq.setFromAxisAngle(forward, s * D(16) * w));
+      aimBone(`${side}ForeArm`, `${side}Hand`, _aim.copy(forward).addScaledVector(_left, s * 0.4).setY(0), w * 0.85);
+    }
+    turnWorld(headBone, _mq.setFromAxisAngle(forward, D(9) * w));
+  }
+  if (k === "point" && gest.at) {
+    me.getWorldPosition(_hp);
+    _pt.subVectors(gest.at, _hp).setY(0).normalize();
+    if (_pt.dot(forward) < -0.3) return; // behind him: he just looks
+    gest.side ??= _pt.dot(_left) >= 0 ? "Left" : "Right"; // the hand on that side
+    // upper arm down, a little out from his body with the elbow drawn back a touch; the forearm comes up from
+    // the elbow toward it, within 50° of his front: "this way, please"
+    const a = THREE.MathUtils.clamp(Math.atan2(_pt.dot(_left), _pt.dot(forward)), -D(50), D(50));
+    const s = gest.side === "Left" ? 1 : -1;
+    aimBone(`${gest.side}Arm`, `${gest.side}ForeArm`, _aim.set(0, -1, 0).addScaledVector(forward, -0.3).addScaledVector(_left, s * 0.3), w);
+    scene.getObjectByName(`mixamorig${gest.side}ForeArm`).getWorldPosition(_hp);
+    const y = THREE.MathUtils.clamp((gest.at.y - _hp.y) / Math.max(0.5, gest.at.distanceTo(_hp)), -0.25, 0.05);
+    _pt.copy(forward).multiplyScalar(Math.cos(a)).addScaledVector(_left, Math.sin(a)).setY(y).normalize();
+    aimBone(`${gest.side}ForeArm`, `${gest.side}Hand`, _pt, w);
+    // an open hand, palm up ("over there"): straighten the wrist (the hand bone runs along its +Y), then roll the
+    // forearm about itself until the palm (local -X on the left hand, +X on the right) faces the sky. The rig has no
+    // twist bones, so half the roll goes on the elbow and half on the wrist: all on one joint wrings the skin
+    const hand = scene.getObjectByName(`mixamorig${gest.side}Hand`);
+    turnWorld(hand, _mq.identity().slerp(_mp.setFromUnitVectors(_a.set(0, 1, 0).applyQuaternion(hand.getWorldQuaternion(_mp)), _pt), w));
+    _a.set(gest.side === "Left" ? -1 : 1, 0, 0).applyQuaternion(hand.getWorldQuaternion(_mp));
+    _a.addScaledVector(_pt, -_a.dot(_pt)); // the palm and the sky, seen down the arm
+    _b.set(0, 1, 0).addScaledVector(_pt, -_pt.y);
+    const roll = Math.atan2(_a.clone().cross(_b).dot(_pt), _a.dot(_b));
+    for (const b of ["ForeArm", "Hand"]) turnWorld(scene.getObjectByName(`mixamorig${gest.side}${b}`), _mq.setFromAxisAngle(_pt, (roll * w) / 2));
+  }
+}
 const MOOD_S = 4.5, PALM_IN = D(90); // arms up: roll the forearms so the palms face in
 const _left = new THREE.Vector3(), _aim = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3();
 const _mq = new THREE.Quaternion(), _mp = new THREE.Quaternion();
@@ -1208,6 +1280,7 @@ addEventListener("pointermove", (e) => {
   if (!gaze.moved) {
     if (Math.hypot(e.clientX - gaze.drag.x0, e.clientY - gaze.drag.y0) < 6) return;
     closeBubble(); // looking away closes the speech bubble
+    foundEgg("drag");
   }
   gaze.moved = true;
   const dx = e.clientX - gaze.drag.x, dy = e.clientY - gaze.drag.y;
@@ -1327,6 +1400,8 @@ function startCheckers(level) {
   closeBubble();
   const seat = game ? game.seat : seated ? mySeat : null; // where you sat: quitting takes you back there
   dancing = false; // he comes over to play instead
+  foundEgg("checkers");
+  if (level === "hard") foundEgg("checkers_hard");
   game = { b: startBoard(), level, seat, sel: null, moves: [], busy: false, quiet: 0 };
   layoutCaps(game.b);
   if (CK.board.position.distanceTo(CK.centre) > 0.01) { // off the fridge, it pops up onto the table
@@ -1446,6 +1521,7 @@ function scoreLine(level) {
 function endCheckers(result) {
   game.busy = true;
   bump(`checkers:${game.level}:${result}`);
+  if (result === "win" && game.level === "easy") foundEgg("won_easy"); // next he dares you to try Hard
   checkersBar((result === "win" ? "You win! 🎉" : result === "lose" ? "Bankza wins! 😎" : "A draw 🤝") +
     (counts ? ` Everyone so far: ${scoreLine(game.level)}` : ""), true);
   bigText(result === "win" ? "YOU WIN!" : result === "lose" ? "BANKZA WINS!" : "DRAW", result);
@@ -1626,6 +1702,88 @@ function startTour(force = false) {
   next.focus();
 }
 
+// ---------------------------------------------------------------- idle lines: leave the page alone and he talks
+// The lines are in the database (db/lines.sql). He speaks after 10 s of you doing nothing, then every 20 to 30 s at
+// most; never over a card or a dialog, in the tour, while you pick a seat or mid-game. At most one line in three is
+// a hint, and only at easter eggs you haven't found yet (remembered in this browser).
+const eggs = new Set();
+try { for (const k of JSON.parse(localStorage.getItem("nakang-eggs")) || []) eggs.add(k); } catch {}
+function foundEgg(k) {
+  if (eggs.has(k)) return;
+  eggs.add(k);
+  try { localStorage.setItem("nakang-eggs", JSON.stringify([...eggs])); } catch {}
+}
+if (timeKey === "night") foundEgg("night");
+const atTable = (t) => seated && SEATS[mySeat].table === t;
+const drinkLeft = () => myDrink?.userData.level ?? 1;
+const SPOT = {
+  street: () => !director && inProgress < 0.001,
+  street_far: () => SPOT.street() && progress < 0.5,
+  window: () => SPOT.street() && progress > 0.85,
+  door_shut: () => !doorOpen,
+  doorway: () => !director && inProgress > 0.001 && inProgress < DOORWAY,
+  inside: () => !director && inProgress >= DOORWAY,
+  seated: () => seated,
+  indoors: () => SPOT.inside() || (seated && !atTable("cart_body")),
+  center_free: () => !atTable("center_table"),
+  drink_half: () => seated && !!myDrink && drinkLeft() > 0 && drinkLeft() < 1,
+  drink_empty: () => seated && !!myDrink && drinkLeft() === 0,
+  music_on: () => musicOn(),
+  music_off: () => !musicOn(),
+  dancing: () => dancing,
+  day: () => timeKey === "day", sunset: () => timeKey === "sunset", night: () => timeKey === "night",
+  won_easy: () => eggs.has("won_easy"),
+  anywhere: () => true,
+};
+const holds = (spot) => spot.split("+").every((k) => k.startsWith("seat:") ? atTable(k.slice(5)) : SPOT[k]?.());
+let lines = [];
+fetch("/api/lines").then((r) => r.json()).then((rows) => { if (Array.isArray(rows)) lines = rows; }).catch(() => {});
+let idleSince = performance.now(), nextLineAt = 0, sinceHint = 2;
+const said = new Set();
+function pickFresh(pool) { // at random, but nothing twice until the whole pool's been said
+  let fresh = pool.filter((l) => !said.has(l.id));
+  if (!fresh.length) { for (const l of pool) said.delete(l.id); fresh = pool; }
+  const l = fresh[Math.floor(Math.random() * fresh.length)];
+  said.add(l.id);
+  return l;
+}
+for (const ev of ["pointerdown", "pointermove", "wheel", "scroll", "keydown", "touchstart"]) addEventListener(ev, () => { idleSince = performance.now(); }, { passive: true });
+function idleLine() {
+  const now = performance.now();
+  if (now - idleSince < 10000 || now < nextLineAt || document.hidden) return;
+  if (bubble || game || picking !== null || document.querySelector("dialog[open]") || !document.getElementById("tour").hidden) return;
+  const fits = lines.filter((l) => holds(l.spot) && !(l.egg && eggs.has(l.egg)));
+  const hints = fits.filter((l) => l.egg), plain = fits.filter((l) => !l.egg);
+  const pool = (sinceHint >= 2 || !plain.length) && hints.length ? hints : plain; // only hints fit here: hints it is
+  if (!pool.length) return;
+  const l = pickFresh(pool);
+  sinceHint = l.egg ? 0 : sinceHint + 1;
+  speak(l);
+  if (walkAmt + danceAmt + sitAmt < 0.05 && l.pose) gesture(l.pose, l.target);
+}
+// what he says in a small bubble for 4 s: above him if he's in view, else from the bottom of the screen with his name
+function speak(l) {
+  nextLineAt = performance.now() + 20000 + Math.random() * 10000;
+  const r = screenRect(me);
+  const seen = r.right > 0 && r.left < innerWidth && r.bottom > 0 && r.top < innerHeight && me.getWorldPosition(_v).project(camera).z < 1;
+  const mid = innerWidth / 2, low = innerHeight - 24;
+  showBubble({ title: seen ? "" : "Bankza", body: l.text }, seen ? r : { left: mid, right: mid, top: low, bottom: low }, 4000);
+  bubble.dataset.idle = "1"; // tap it to close it, so no × on it
+  bubble.querySelector(".x").remove();
+  bubble.setAttribute("role", "status"); // a passing remark, read out politely, not a dialog
+}
+// his hello as he waves when you walk up to the window (lines with spot "greet"); it stays up while you're still scrolling
+function greet() {
+  if (bubble || game || document.querySelector("dialog[open]") || !document.getElementById("tour").hidden) return;
+  // greet+door_shut and the like win when they hold: with the door shut he tells you to tap it
+  const greets = lines.filter((l) => l.spot.split("+")[0] === "greet");
+  const special = greets.filter((l) => l.spot !== "greet" && holds(l.spot.slice(6)));
+  const all = special.length ? special : greets.filter((l) => l.spot === "greet");
+  speak(all.length ? pickFresh(all) : { text: "Hi! Welcome to NAKANG." }); // a different hello each time till they run out
+  bubble.dataset.keep = "1";
+}
+setInterval(idleLine, 1000);
+
 startTour(); // after everything above is defined
 const frameClock = new THREE.Clock();
 let frameNo = 0;
@@ -1645,10 +1803,3 @@ renderer.setAnimationLoop(() => {
   renderer.shadowMap.needsUpdate = frameNo++ % 2 === 0; // moving shadows (him, the cars, the birds) at 30 per second
   renderer.render(scene, camera);
 });
-
-
-
-
-
-
-

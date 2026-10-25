@@ -15,7 +15,8 @@
     body > canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
     #scroll { height: 400vh; }                       /* scroll distance = the walk to the shop */
     #hint { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 6px 14px; border-radius: 999px;
-            background: var(--paper); box-shadow: 0 4px 14px rgba(0,0,0,.15); font-weight: 600; transition: opacity .4s; pointer-events: none; }
+            background: var(--paper); box-shadow: 0 4px 14px rgba(0,0,0,.15); font-weight: 600; transition: opacity .4s;
+            border: 0; color: inherit; font-family: inherit; font-size: inherit; cursor: pointer; } /* tap it to walk there */
     #tip { position: fixed; padding: 3px 10px; border-radius: 999px; background: var(--ink); color: var(--paper); font-size: 13px;
            pointer-events: none; opacity: 0; transform: translate(-50%, -150%); transition: opacity .15s; white-space: nowrap; }
     .bubble { position: fixed; width: max-content; min-width: 150px; max-width: min(320px, calc(100vw - 32px)); padding: 16px 18px 18px; border-radius: 20px; background: var(--paper);
@@ -29,6 +30,7 @@
     .bubble[data-tail="none"]::after { display: none; }
     .bubble h2 { margin: 0 0 6px; padding-right: 26px; font: 800 20px/1.1 "Archivo", sans-serif; font-stretch: 125%; }
     .bubble p { margin: 0; }
+    body > .bubble:not(:has(.x)) h2 { padding-right: 0; } /* his speech bubbles have no × to make room for */
     .bubble .tabs { display: flex; justify-content: center; gap: 6px; margin-top: 10px; }
     .bubble .tab { border: 0; border-radius: 999px; padding: 6px 12px; font: 600 13px "Anuphan", sans-serif; background: #ece5d8; color: inherit; cursor: pointer; }
     .bubble .tab[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
@@ -84,7 +86,7 @@
             width: min(880px, calc(100vw - 24px), calc((100dvh - 120px) * 1.45)); }
     .bubble p.talk { min-height: 3em; transition: opacity .25s; } /* your bubble: one sentence at a time */
     #book::backdrop { background: rgba(20,18,16,.55); }
-    body:has(dialog[open]) #hint { opacity: 0 !important; } /* the walk hint would show through behind a dialog's buttons */
+    body:has(dialog[open]) #hint { opacity: 0 !important; pointer-events: none; } /* the walk hint would show through behind a dialog's buttons */
     #book .cover { background: #f2c81d; border-radius: 10px; padding: 12px; box-shadow: inset 0 0 0 2px #d9b10f, 0 30px 80px rgba(0,0,0,.45); }
     #book .spread { position: relative; display: grid; grid-template-columns: 1fr 1fr; aspect-ratio: 1.45; perspective: 2400px;
                     box-shadow: 0 2px 0 #ece4d2, 0 4px 0 #ddd3bc, 0 6px 0 #e9e1cf; border-radius: 3px; cursor: pointer; }
@@ -181,7 +183,7 @@
 </head>
 <body>
   <div id="scroll"></div>
-  <div id="hint">Scroll to walk to the shop ↓</div>
+  <button id="hint">Scroll to walk to the shop ↓</button>
   <div id="tip"></div>
   <button id="help" aria-label="How to use this page">?</button>
   <button id="mute" aria-label="Sound on or off">🔊</button>
@@ -223,6 +225,6 @@
   <div id="loading" role="progressbar" aria-label="Loading the shop" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
     <div class="sign"><h1>NAKANG</h1><div class="bar"><i></i></div><small>Opening the shop… 0%</small></div>
   </div>
-  <script type="module" src="main.js?v=142"></script>
+  <script type="module" src="main.js?v=145"></script>
 </body>
 </html>
