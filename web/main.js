@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { cards, site, drinks, drivers } from "./content.js?v=35";
-import { createSound, createStreetLife } from "./life.js?v=35";
+import { cards, site, drinks, drivers, work } from "./content.js?v=38";
+import { createSound, createStreetLife } from "./life.js?v=36";
 import { startBoard, legalMoves, play, botMove } from "./checkers.js?v=1";
 import { COLORS, newDeck, shuffle, canPlay, goesAgain, penalty, botPick, botColor } from "./uyes.js?v=1";
 import { surface as latteSurface, draw as drawLatte, reset as resetLatte, pourStep, jugLeft, toGrid, quip, score as latteScore } from "./latte.js?v=6";
@@ -217,7 +217,10 @@ scene.getObjectByName("vinyl_shelf").userData.hotspot = "records";
       slot.add(r);
       continue;
     }
-    cards[`project:${p.id}`] = { title: p.title, body: p.body, ...(p.url && { link: { label: p.link_label || `Open ${p.title}`, url: p.url } }) };
+    const list = (s) => s?.split(",").map((x) => x.trim()).filter(Boolean) ?? [];
+    cards[`project:${p.id}`] = { title: p.title, tagline: p.tagline, body: p.body, shots: list(p.image), tags: list(p.tags),
+      ...(p.url && { link: { label: p.link_label || `Open ${p.title}`, url: p.url } }),
+      ...(p.repo && { links: [{ label: "Source on GitHub", url: p.repo }] }) };
     const tpl = p.model && scene.getObjectByName(`TPL_project_${p.model}`);
     let item = tpl?.clone();
     if (!item) {
@@ -530,6 +533,43 @@ function aboutBubble(actions, r) {
     setTimeout(() => { p.textContent = said[++i]; p.style.opacity = 1; }, 250);
   }, 2800);
 }
+// ask him anything (api/chat.js answers as him): the bubble shows his last answer and a box for the next question
+const chat = []; // this visit's talk, [{ role, content }], always user / assistant in turn
+function chatBubble(r) {
+  closeBubble();
+  const last = chat.at(-1);
+  showBubble({ title: "Ask Bankza", who: last && "Bankza",
+    body: last?.content ?? "Ask me about my work, my skills or how to reach me. ถามเป็นภาษาไทยก็ได้นะ!" }, r);
+  const me = bubble, p = me.querySelector("p");
+  me.dataset.keep = 1; // a phone's keyboard can scroll the page; that shouldn't close it
+  const form = document.createElement("form");
+  form.className = "ask";
+  form.innerHTML = `<input name="q" maxlength="300" placeholder="Type a question…" autocomplete="off" aria-label="Your question"><button class="btn">Send</button>`;
+  me.append(form);
+  form.q.focus({ preventScroll: true });
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const q = form.q.value.trim();
+    if (!q || form.dataset.busy) return;
+    form.dataset.busy = 1;
+    form.q.value = "";
+    chat.push({ role: "user", content: q });
+    p.innerHTML = `<span class="you">You: ${esc(q)}</span><b>Bankza:</b> <span class="dots">…</span>`;
+    let reply = "Sorry, I didn't catch that. Try again?", ok = false;
+    try {
+      const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: chat.slice(-11) }) }); // an odd count, so it still starts with a question
+      ok = res.ok;
+      reply = (await res.json()).reply || reply;
+    } catch {}
+    if (ok) chat.push({ role: "assistant", content: reply });
+    else chat.pop(); // keep the turns in step for the next question
+    delete form.dataset.busy;
+    if (!me.isConnected) return;
+    p.innerHTML = `<span class="you">You: ${esc(q)}</span><b>Bankza:</b> ${esc(reply)}`;
+    form.q.focus({ preventScroll: true });
+  };
+}
 addEventListener("click", (e) => {
   if (gaze.moved) return; // that was a drag to look around
   if (ride && onScene(e)) return tapDriver(e); // riding: only the driver
@@ -568,7 +608,7 @@ addEventListener("click", (e) => {
   if (key === "about") {
     if (brewing) return; // busy making your drink
     wave();
-    const acts = [{ label: "☕ Order a drink", run: () => drinkMenu(r) },
+    const acts = [{ label: "☕ Order a drink", run: () => drinkMenu(r) }, { label: "💬 Ask me anything", run: () => chatBubble(r) },
       { label: "📖 See my portfolio", run: (btn) => { const from = btn.getBoundingClientRect(); closeBubble(); openBook(from); } }];
     if (seated && SEATS[mySeat].table === "center_table") // only while you sit at the table the board goes on
       acts.push({ label: "♟ หมากฮอส?", egg: true, run: () => { closeBubble(); checkersMenu(r); } });
@@ -599,12 +639,37 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&
 // a card's words: title, text, table rows and link buttons (the bubbles and the project book share it)
 const cardHTML = (c) =>
   (c.title ? `<h2>${esc(c.title)}</h2>` : "") +
+  (c.tagline ? `<p class="tagline">${esc(c.tagline)}</p>` : "") +
+  (c.meta ? `<p class="meta">${esc(c.meta)}</p>` : "") +
+  (c.shots?.length ? galleryHTML(c) : "") + // a project's pictures to swipe through (its card)
+  (c.img ? `<img class="hero" src="${esc(c.img)}" alt="${esc(c.title)}">` : "") + // or laid on the page (the book)
+  (c.pics ? `<div class="pics">${c.pics.map((src) => `<img src="${esc(src)}" alt="${esc(c.alt)}" loading="lazy">`).join("")}</div>` : "") +
+  (c.tags?.length ? `<div class="chips">${c.tags.map((t) => `<span>${esc(t)}</span>`).join("")}</div>` : "") +
   (c.body ? `<p>${c.who ? `<b>${esc(c.who)}:</b> ` : ""}${esc(c.body)}</p>` : "") + // who: the speaker's name, in bold
   (c.tabs?.length ? (c.tabs.length > 1 ? `<div class="tabs">${c.tabs.map((t, i) =>
     `<button class="tab" data-tab="${i}" aria-pressed="${i === 0}">${esc(t.label)}</button>`).join("")}</div>` : "") +
     `<div class="pane">${paneHTML(c.tabs[0])}</div>` : "") +
   (c.rows ? `<table>${c.rows.map(([a, b]) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join("")}</table>` : "") +
-  [].concat(c.link || [], c.links || []).map((l) => `<a class="btn" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)} ↗</a>`).join(" ");
+  [].concat(c.link || [], c.links || []).map((l) => `<a class="btn" href="${esc(l.url)}" ${l.download ? "download" : `target="_blank" rel="noopener"`}>${esc(l.label)} ${l.download ? "↓" : "↗"}</a>`).join(" ");
+// a project's pictures: swipe or scroll sideways (CSS scroll-snap) or tap the arrows; the dots follow along
+const galleryHTML = (c) => `<div class="gal-w"><div class="gal">${c.shots.map((s, i) =>
+  `<img src="${esc(s)}" alt="${esc(c.title)}, picture ${i + 1} of ${c.shots.length}" loading="lazy">`).join("")}</div>` +
+  (c.shots.length > 1 ? `<button class="gal-b" data-gal="-1" aria-label="Previous picture">‹</button>` +
+    `<button class="gal-b" data-gal="1" aria-label="Next picture">›</button>` +
+    `<div class="dots">${c.shots.map((_, i) => `<i${i ? "" : ` class="on"`}></i>`).join("")}</div>` : "") + `</div>`;
+addEventListener("click", (e) => {
+  const b = e.target.closest?.("[data-gal]");
+  if (!b) return;
+  e.stopPropagation(); // just the pictures: not a page turn, not a tap on the scene
+  const g = b.parentElement.querySelector(".gal"), n = g.children.length, i = Math.round(g.scrollLeft / g.clientWidth);
+  g.scrollTo({ left: ((i + +b.dataset.gal + n) % n) * g.clientWidth, behavior: "smooth" }); // past the last: back to the first
+}, true);
+addEventListener("scroll", (e) => {
+  const g = e.target;
+  if (!g.classList?.contains("gal")) return;
+  const i = Math.round(g.scrollLeft / g.clientWidth);
+  g.parentElement.querySelectorAll(".dots i").forEach((d, k) => d.classList.toggle("on", k === i));
+}, true);
 // a card tab's content: a picture (the tip QRs), or a note and a button
 const paneHTML = (t) => t.src ? `<img class="pic" src="${esc(t.src)}" alt="${esc(t.alt)}">`
   : `<p>${esc(t.note)}</p><button class="btn" data-go>${esc(t.go)}</button>`;
@@ -762,13 +827,22 @@ function animateCat(now) {
 }
 
 // ---------------------------------------------------------------- the portfolio book on the centre table
-// Everything in one book: cover, contents, about, skills, every project, interests, contact. Lies open two pages a
+// Everything in one book: cover, contents, about, work, skills, every project, interests, contact. Lies open two pages a
 // spread (one page on a phone); Next / Back, the arrow keys or a tap on either half turn a leaf over the spine.
 const chapters = [
   { kicker: "About", ...cards.about, body: cards.about.lines.join(" ") },
+  ...work.flatMap((j) => j.projects.map((p) => ({ kicker: "Work", title: p.name, meta: `${j.role} at ${j.company}, ${j.place} · ${j.when}`,
+    body: p.body, tags: p.stack }))), // a page for each thing I built
   { kicker: "Skills", ...cards.skills, title: "What I work with" },
   ...[...new Set([...projects.slice(0, 8).map((p) => `project:${p.id}`), ...Object.keys(cards).filter((k) => k.startsWith("project:"))])]
-    .map((k) => ({ kicker: "Projects", ...cards[k] })), // the case's first, in its order
+    .flatMap((k) => { // the case's first, in its order. One with pictures: the cover, then the words, then the rest two a page
+      const c = cards[k];
+      if (!c.shots?.length) return [{ kicker: "Projects", ...c }];
+      const [cover, ...more] = c.shots;
+      return [{ kicker: "Projects", title: c.title, tagline: c.tagline, img: cover, tags: c.tags },
+        { kicker: "Projects", title: c.title, body: c.body, link: c.link, links: c.links },
+        ...Array.from({ length: Math.ceil(more.length / 2) }, (_, i) => ({ kicker: "Projects", pics: more.slice(i * 2, i * 2 + 2), alt: c.title }))];
+    }),
   { kicker: "Interests", ...cards.interests },
   { kicker: "Contact", ...cards.contact },
 ];
@@ -799,14 +873,15 @@ function openBook(from) { // from: the screen rect it flies in from (the book on
     prev.disabled = book.at === 0;
     next.disabled = book.at === last();
   };
-  const turn = (to) => {
+  // lift a leaf to turn from this page to `to`; set(p) lays it at p (0 where it started, 1 turned over) and
+  // settle(keep) lets it fall the rest of the way, or back if !keep. null when there's nowhere to turn
+  const lift = (to) => {
     if (two() && to % 2) to++;
     to = THREE.MathUtils.clamp(to, 0, last());
-    if (book.busy || to === book.at) return;
+    if (book.busy || to === book.at) return null;
     const fwd = to > book.at, from = book.at;
     const leaf = document.createElement("div");
-    leaf.innerHTML = `<div class="pg front"></div><div class="pg back"></div>`;
-    const [front, back] = leaf.children;
+    const front = document.createElement("div"), back = document.createElement("div"); // filled below, then cut into strips
     let a0 = 0, a1 = fwd ? -180 : 180, land = () => {};
     if (two() && fwd) { // lift the right page, lay it down as the new left page
       leaf.className = "leaf on-right"; fillPage(front, from, "right"); fillPage(back, to - 1, "left"); fillPage(R, to, "right");
@@ -821,35 +896,119 @@ function openBook(from) { // from: the screen rect it flies in from (the book on
       [a0, a1] = [-180, 0];
       land = () => fillPage(R, to, "right");
     }
-    for (const f of [front, back]) f.classList.add(f === front ? "front" : "back");
+    // soft paper: the leaf is a chain of narrow strips, each hinged on the one before, so it can bend as it turns
+    const N = 8, hinge = leaf.classList.contains("on-left") ? "right" : "left", strips = [];
+    for (let i = 0, host = leaf; i < N; i++) {
+      const s = document.createElement("div");
+      s.className = "strip";
+      s.style.cssText = `${hinge}: ${i ? "100%" : 0}; width: ${i ? "100%" : `${100 / N}%`}; transform-origin: ${hinge} center`;
+      // each face shows its slice of the page: the front from the spine out, the back (seen once it's over) mirrored
+      for (const [pg, col] of [[front, hinge === "left" ? i : N - 1 - i], [back, hinge === "left" ? N - 1 - i : i]]) {
+        const f = document.createElement("div"), c = pg.cloneNode(true);
+        f.className = `face ${pg === front ? "front" : "back"}`;
+        c.style.cssText = `width: calc(${N} * (100% - 2px)); left: calc(1px - ${col} * (100% - 2px))`; // the face spills 1px each side so no seam shows
+        f.append(c);
+        s.append(f);
+      }
+      host.append(s);
+      strips.push((host = s));
+    }
     spread.append(leaf);
     book.busy = true;
-    book.at = to;
-    prev.disabled = to === 0;
-    next.disabled = to === last();
-    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const opts = { duration: reduce ? 0 : 700, easing: "cubic-bezier(.45,.05,.3,1)" };
-    // the page darkens as it stands up off the paper, and lightens as it lies down
-    front.animate([{ filter: "brightness(1)" }, { filter: "brightness(.78)" }], opts);
-    back.animate([{ filter: "brightness(.78)" }, { filter: "brightness(1)" }], opts);
-    leaf.animate([{ transform: `rotateY(${a0}deg)` }, { transform: `rotateY(${(a0 + a1) / 2}deg) translateZ(18px)` }, { transform: `rotateY(${a1}deg)` }], opts)
-      .finished.then(() => { land(); leaf.remove(); book.busy = false; });
-    feedback(R, false);
+    let at = 0;
+    const set = (p) => {
+      at = THREE.MathUtils.clamp(p, 0, 1);
+      const lag = 40 * Math.sin(at * Math.PI) * Math.sign(a0 - a1); // mid-turn the free edge trails behind the spine
+      let a = a0 + (a1 - a0) * at;
+      strips.forEach((s, i) => {
+        const bend = i && (lag * 2 * i) / (N * (N - 1)); // bends more toward the edge, adding up to lag
+        a += bend;
+        s.style.transform = i ? `rotateY(${bend}deg)` : `rotateY(${a}deg) translateZ(${18 * Math.sin(at * Math.PI)}px)`;
+        const k = (a - a0) / (a1 - a0); // how far over this strip is: it darkens as it stands up, and lightens as it lies down
+        s.children[0].style.filter = `brightness(${1 - 0.22 * k})`;
+        s.children[1].style.filter = `brightness(${0.78 + 0.22 * k})`;
+      });
+    };
+    const settle = (keep) => {
+      const p0 = at, p1 = keep ? 1 : 0, t0 = performance.now();
+      const ms = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700 * Math.abs(p1 - p0);
+      // a full turn eases in and out; a page let go mid-turn carries on from where it was
+      const ease = p0 ? (k) => 1 - (1 - k) ** 3 : (k) => (k < 0.5 ? 4 * k ** 3 : 1 - (-2 * k + 2) ** 3 / 2);
+      const tick = (now) => {
+        const k = ms ? Math.min(1, (now - t0) / ms) : 1;
+        set(p0 + (p1 - p0) * ease(k));
+        if (k < 1) return requestAnimationFrame(tick);
+        if (keep) { book.at = to; land(); } else render(); // put back: the pages under it go back as they were
+        leaf.remove();
+        book.busy = false;
+        prev.disabled = book.at === 0;
+        next.disabled = book.at === last();
+      };
+      requestAnimationFrame(tick);
+    };
+    set(0);
+    return { set, settle, get at() { return at; } };
+  };
+  const turn = (to) => {
+    const l = lift(to);
+    if (!l) return;
+    sound.paper();
+    navigator.vibrate?.(8);
+    l.settle(true);
   };
   const step = () => (two() ? 2 : 1);
   prev.onclick = () => turn(book.at - step());
   next.onclick = () => turn(book.at + step());
   spread.onclick = (e) => {
+    if (book.dragged) return (book.dragged = false); // the end of a drag, not a tap
     const go = e.target.closest("[data-go]");
     if (go) return turn(+go.dataset.go);
-    if (e.target.closest("a, button")) return;
+    if (e.target.closest("a, button, .gal")) return; // a swipe through a project's pictures isn't a page turn
     const r = spread.getBoundingClientRect(); // tap the right half to go on, the left half to go back
     turn(book.at + (e.clientX > r.left + r.width / 2 ? step() : -step()));
+  };
+  // or take hold of a page and drag it over: it follows your finger, and turns if you let go past halfway or flick it
+  let drag = null;
+  spread.ondragstart = (e) => e.preventDefault(); // a picture would be dragged off as a file and cancel the page drag
+  spread.onpointerdown = (e) => {
+    book.dragged = false;
+    if (book.busy || e.button || e.target.closest("a, button, .gal")) return;
+    const r = spread.getBoundingClientRect();
+    drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, t: e.timeStamp, v: 0, l: null,
+      fwd: e.clientX > r.left + r.width / 2, w: r.width * (two() ? 0.8 : 0.9) };
+  };
+  spread.onpointermove = (e) => {
+    if (e.pointerId !== drag?.id) return;
+    const dx = e.clientX - drag.x0;
+    if (!drag.l) {
+      if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(e.clientY - drag.y0)) return; // still a tap, or scrolling the page
+      if (dx < 0 !== drag.fwd) return (drag = null); // the right page goes left, the left page goes right
+      drag.l = lift(book.at + (drag.fwd ? step() : -step()));
+      if (!drag.l) return (drag = null); // the first or the last page
+      try { spread.setPointerCapture(e.pointerId); } catch {} // keeps the page in hand off the book's edge (gone if the pointer already lifted)
+      sound.paper(0.25, 0.18); // a soft rustle as it comes up
+    }
+    drag.v = (e.clientX - drag.x) / Math.max(1, e.timeStamp - drag.t); // px per ms, for a flick
+    drag.x = e.clientX;
+    drag.t = e.timeStamp;
+    drag.l.set((drag.fwd ? -dx : dx) / drag.w);
+  };
+  spread.onpointerup = spread.onpointercancel = (e) => {
+    if (e.pointerId !== drag?.id) return;
+    const d = drag;
+    drag = null;
+    if (!d.l) return;
+    book.dragged = true;
+    const flick = e.timeStamp - d.t > 100 ? 0 : d.fwd ? -d.v : d.v; // held still before letting go: no flick
+    const keep = e.type === "pointerup" && (d.l.at > 0.5 ? flick > -0.3 : flick > 0.5);
+    if (keep) { sound.paper(); navigator.vibrate?.(8); }
+    d.l.settle(keep);
   };
   dlg.onkeydown = (e) => { if (e.key === "ArrowRight") next.onclick(); if (e.key === "ArrowLeft") prev.onclick(); };
   // closing, it shrinks and floats back down onto the table (where it came from, if the table's out of view)
   const close = () => {
     if (book.closing) return;
+    sound.flap(0.35); // and shuts
     const cover = dlg.querySelector(".cover"), end = cover.getBoundingClientRect();
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) return dlg.close();
     const home = scene.getObjectByName("HOT_book"), c = home.getWorldPosition(new THREE.Vector3()).project(camera);
@@ -878,6 +1037,7 @@ function openBook(from) { // from: the screen rect it flies in from (the book on
   book.render = render;
   render();
   dlg.showModal();
+  sound.flap(); // the cover opens
   book.from = from;
   if (!from || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   // it floats in from where you tapped, grows to the middle of the screen, and opens from the cover to the contents

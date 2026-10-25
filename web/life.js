@@ -88,6 +88,40 @@ export function createSound() {
     src.connect(lp).connect(g).connect(outside);
     src.start(t);
   }
+  // the portfolio book: a page turning over (a swish of high noise that rises and falls) and its cover (a soft papery thud)
+  function paper(volume = 0.5, len = 0.38) {
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * len), ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = buf;
+    bp.type = "bandpass";
+    bp.Q.value = 0.7;
+    bp.frequency.setValueAtTime(1400, t);
+    bp.frequency.exponentialRampToValueAtTime(5200, t + len * 0.45);
+    bp.frequency.exponentialRampToValueAtTime(2200, t + len);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(volume * 0.35, t + len * 0.25);
+    g.gain.linearRampToValueAtTime(volume, t + len * 0.55);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    src.connect(bp).connect(g).connect(master); // indoors, so not through the street muffler
+    src.start(t);
+  }
+  function flap(volume = 0.5) {
+    if (!ctx) return;
+    const t = ctx.currentTime, len = 0.3;
+    const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * len), ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.05));
+    const src = ctx.createBufferSource(), lp = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = buf;
+    lp.type = "lowpass";
+    lp.frequency.value = 900;
+    g.gain.value = volume;
+    src.connect(lp).connect(g).connect(master);
+    src.start(t);
+    paper(volume * 0.4, 0.22); // with a little rustle of the pages
+  }
   function chime(volume = 0.12) {
     if (!ctx) return;
     const t = ctx.currentTime;
@@ -129,7 +163,7 @@ export function createSound() {
     lfo.stop(t + len);
   }
   return {
-    start, play, honk, slurp, chime, squeal, thunk,
+    start, play, honk, slurp, chime, squeal, thunk, paper, flap,
     // k = 0: out on the street; 1: indoors with the door shut (street sounds quiet and dull, like through glass)
     muffle(k) {
       if (!ctx || Math.abs(k - (this.k ?? 0)) < 0.01) return; // called every frame: only schedule real changes

@@ -73,6 +73,32 @@ export const drivers = {
     menu: "Woof? What's up?", fast: "Zoom zoom!", slow: "Slow and steady, got it.", wheelie: "Woohoo! Watch this!" }, // wheelie: tuk-tuks only
 };
 
+// my jobs: the Work chapter of the portfolio book, newest first, and Bankza's chat knows them too.
+// projects: what I built there, `body` one or two sentences, `stack` shown as chips
+export const work = [
+  { role: "Full-Stack Developer (freelance)", company: "Nexilar Co., Ltd.", place: "Ayutthaya", when: "Jul 2023 – now", projects: [
+    { name: "KPI e-solution", body: "The back office of an insurance sales platform: product and plan configuration, PDF document generation and storage on MinIO, plus a PDF Text Mapper tool that maps data into PDF documents automatically.",
+      stack: ["Next.js", "Ant Design", "Tailwind", "Zustand", "Nest.js", "MySQL"] },
+    { name: "CRM platform", body: "Automated marketing by email, SMS and LINE OA: customer segmentation, campaign scheduling, workflow automation, a message template builder and an interactive reporting dashboard.",
+      stack: ["Next.js", "TypeScript", "NextUI", "Tailwind", "Zustand", "Framer Motion", "Adonis.js", "PostgreSQL"] },
+    { name: "Property Management System", body: "Front desk and reservations for hotels: room types and rates, a drag-and-drop booking calendar, bookings from start to cancel, invoices, receipts and confirmations, and OTA sync with One Hotel and STAAH.",
+      stack: ["Next.js", "TypeScript", "Ant Design", "Redux", "Adonis.js", "PostgreSQL", "ExcelJS"] },
+  ] },
+  { role: "Software Developer (back end)", company: "Entronica Co., Ltd.", place: "Bangkok", when: "May 2021 – Apr 2022", projects: [
+    { name: "Customer data service", body: "API services for mobile network customer data used in the myAIS app, integrating Oracle and MySQL databases with internal microservices, running on Kubernetes.",
+      stack: ["Express.js", "TypeScript", "MySQL", "Oracle", "Kubernetes"] },
+  ] },
+];
+
+// the rest of my CV, only for Bankza's chat (web/api/chat.js), on top of `work`. Not shown on the page,
+// but anyone can ask him, so only put in what's fine to be public.
+export const cv = [
+  "Full-stack developer with 3 years of experience writing clean, readable code. I specialise in Next.js and Node.js, focus on maintainable solutions, and enjoy working in teams to build better software. Always keen to learn a new tech stack or pick up new tools.",
+  "Based in Nakhon Ratchasima, Thailand. Phone 097-1240-007.",
+  "Skills. Front end: Next.js, React, React Native, TypeScript, Zustand, Redux, Tailwind, Ant Design, NextUI. Back end: Express.js, Nest.js, Adonis.js, Node.js, Flask. Databases: MySQL, PostgreSQL, MongoDB, Oracle. Tools: Redis, Axios, ExcelJS, Zod, Prisma, RabbitMQ, Bull Queue, Docker, Vercel.",
+  "Education: Bachelor of Information Science in Enterprise Software, Suranaree University of Technology, Nakhon Ratchasima, Jul 2017 to Mar 2021, GPA 3.22.",
+];
+
 export const cards = {
   about: {
     title: "Pongsakorn Naklang",
@@ -110,7 +136,7 @@ export const cards = {
   // the "off the clock" page of the portfolio book: just the topics
   interests: {
     title: "Off the clock",
-    rows: [["Old tech & gadgets", ""], ["Graphics", ""], ["Custom keyboards", ""], ["Mid-century home", ""], ["Indoor plants", ""], ["Music", ""], ["Making my own games", ""]],
+    rows: [["Old tech & gadgets", ""], ["Graphics", ""], ["Drawing", ""], ["Custom keyboards", ""], ["Mid-century home", ""], ["Indoor plants", ""], ["Music", ""], ["Making my own games", ""]],
   },
   // the tip jar on the counter; its QRs and Ko-fi link come from the database (db/settings.sql)
   tip: {
@@ -123,6 +149,7 @@ export const cards = {
     links: [
       { label: "GitHub", url: "https://github.com/PongsakornNaklang" },
       { label: "Email", url: "mailto:pongsakornnaklang@gmail.com" },
+      { label: "📄 Download CV", url: "cv_pongsakorn_naklang.pdf", download: true }, // download: saves the file instead of opening it
     ],
   },
 };

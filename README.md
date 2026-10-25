@@ -11,14 +11,14 @@ A portfolio built as a tiny 3D Bangkok shop. You scroll to walk across the stree
 | Object | What it does |
 |---|---|
 | Things in the PROJECTS case | Each opens its project (the list comes from the database) |
-| Bankza behind the counter | Says hi and tells you about himself; order a drink and he walks to the machine and makes it while you watch, then you pick a seat; opens the portfolio book; dances while the music's on |
+| Bankza behind the counter | Says hi and tells you about himself; order a drink and he walks to the machine and makes it while you watch, then you pick a seat; "💬 Ask me anything" to chat with him (AI, answers from what's on the site); opens the portfolio book; dances while the music's on |
 | Menu stand | Skills, listed like a coffee menu |
 | A-frame sign | A short hello |
 | Door | Opens and closes; when it's open you can scroll on into the shop |
 | Seats | Sit down with your drink: tap it to sip, drag to look around |
 | Record player | Music on/off; the tone arm drops onto the record and it spins |
 | Vinyl shelf | The records come off it into a row to flip through; pick one to play, or request a song |
-| Yellow book on the table | The portfolio book: every project, page by page |
+| Yellow book on the table | The portfolio book: about me, my work (a page for each thing I built), skills, every project, page by page; tap or drag a page to turn it |
 | Blue board | Draw a note on the shared guestbook |
 | Box on the bookshelf | UYES, a card game against Bankza |
 | Sleeping cat | Pet it |
@@ -43,7 +43,7 @@ blender/export_mixamo.py      exports the character in an A-pose for Mixamo
 blender/prep_meshy.py         shrinks the raw Meshy street models into meshy/street/*.glb
 mixamo/                       the Mixamo-rigged character with Waving and Breathing Idle clips
 web/                          the static three.js page (no build step)
-web/api/                      small Vercel Functions: the display case's projects, the shared guestbook board, the visitor counter, shared tallies
+web/api/                      small Vercel Functions: the display case's projects, the shared guestbook board, the visitor counter, shared tallies, Bankza's chat
 db/                           the database tables (Neon Postgres, connected through Vercel)
 ```
 
@@ -63,9 +63,11 @@ db/                           the database tables (Neon Postgres, connected thro
 cd web && npm install && vercel dev --listen 5173
 ```
 
-**Edit the text on the cards** in [web/content.js](web/content.js).
+**Edit the text on the cards** in [web/content.js](web/content.js), including `work` (my jobs, for the book's Work chapter and Bankza's chat).
 
-**Edit what's in the display case** in the Neon console (Vercel → Storage → nakang-db → Open in Neon → Tables → `projects`): one row per project, in `position` order across the top shelf then the bottom (8 spots). `model` picks the 3D model: a Blender one such as `ipod_classic`, or a shape, `sphere`, `cube` or `pyramid`; left empty it's a sphere. The site shows changes within a minute. The tables are described in [db/](db/).
+**Edit what's in the display case** in the Neon console (Vercel → Storage → nakang-db → Open in Neon → Tables → `projects`): one row per project, in `position` order across the top shelf then the bottom (8 spots). `model` picks the 3D model: a Blender one such as `ipod_classic`, or a shape, `sphere`, `cube` or `pyramid`; left empty it's a sphere. `image` lists its pictures, comma-separated (paths in `web/projects/` or URLs; the first is the cover, more make a gallery), `tagline` a short line under the title, `tags` its highlights as chips (comma-separated) and `repo` adds a "Source on GitHub" button. The site shows changes within a minute. The tables are described in [db/](db/).
+
+**Bankza's chat** (`web/api/chat.js`) runs on Claude Haiku 5.5 and needs an `ANTHROPIC_API_KEY` env var in Vercel. He answers only from `web/content.js` (including the CV in `cv`, which only he uses) and the `projects` table, so edit those to change what he knows. Each visitor gets 20 messages a day and the whole site 1000, counted in the `chat_uses` table.
 
 **The guestbook board** is shared: every save adds a row to the `guestbook` table and the site shows the newest. The last 50 are kept, so to undo a spoiled board, delete the rows newer than the good one. More detail on the Blender side is in [blender/README.md](blender/README.md).
 
