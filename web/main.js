@@ -1811,20 +1811,74 @@ const UY = (() => {
   scene.add(g);
   const W = 0.07, H = 0.105, geo = new THREE.PlaneGeometry(W, H).rotateX(-Math.PI / 2); // lying flat, its top away from you
   const edge = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.6 });
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(W, 1, H), [edge, edge, new THREE.MeshStandardMaterial({ map: uyTex(null), roughness: 0.5 }), edge, edge, edge]);
-  deck.position.x = -0.07;
-  const under = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ roughness: 0.5 })), top = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ roughness: 0.5 }));
-  under.position.set(0.065, 0.002, 0); under.rotation.y = 0.25;
-  top.position.set(0.06, 0.003, 0); top.rotation.y = -0.08;
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.072, 0.08, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-  ring.position.set(0.06, 0.001, 0);
+  // the cards' corners are round: the art is cut out where its canvas is clear (alphaTest), and the deck is a rounded block
+  const R = 0.0077, rr = new THREE.Shape();
+  const w = W / 2, h = H / 2;
+  rr.moveTo(-w + R, -h); rr.lineTo(w - R, -h); rr.quadraticCurveTo(w, -h, w, -h + R); rr.lineTo(w, h - R); rr.quadraticCurveTo(w, h, w - R, h);
+  rr.lineTo(-w + R, h); rr.quadraticCurveTo(-w, h, -w, h - R); rr.lineTo(-w, -h + R); rr.quadraticCurveTo(-w, -h, -w + R, -h);
+  const deck = new THREE.Mesh(new THREE.ExtrudeGeometry(rr, { depth: 1, bevelEnabled: false }).rotateX(-Math.PI / 2).translate(0, -0.5, 0), edge);
+  const deckTop = new THREE.MeshStandardMaterial({ map: uyTex(null), alphaTest: 0.5, roughness: 0.5, emissive: 0xffe100, emissiveIntensity: 0 }); // glows when you've nothing to play
+  const lid = new THREE.Mesh(geo, deckTop);
+  lid.position.y = 0.501;
+  deck.add(lid);
+  const PZ = -0.07; // the deck and the pile sit back a little, clear of your hand at the bottom of the screen
+  deck.position.set(-0.07, 0, PZ);
+  const under = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ alphaTest: 0.5, roughness: 0.5 })), top = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ alphaTest: 0.5, roughness: 0.5 }));
+  under.position.set(0.065, 0.002, PZ); under.rotation.y = 0.25;
+  top.position.set(0.06, 0.003, PZ); top.rotation.y = -0.08;
+  // the colour to play: a ring and a soft glow of it under the pile, which pop when it changes
+  const sc = Object.assign(document.createElement("canvas"), { width: 128, height: 128 }), sx = sc.getContext("2d");
+  const grad = sx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0, "#fff"); grad.addColorStop(0.55, "rgba(255,255,255,.6)"); grad.addColorStop(1, "rgba(255,255,255,0)");
+  sx.fillStyle = grad; sx.fillRect(0, 0, 128, 128);
+  const mark = new THREE.Group();
+  mark.position.set(0.06, 0, PZ);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.074, 0.088, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.26).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(sc), transparent: true, opacity: 0.55, depthWrite: false }));
+  ring.position.y = 0.001; glow.position.y = 0.0006;
+  mark.add(glow, ring);
   const fan = new THREE.Group(); // his cards, face down on his side
-  fan.position.z = -0.17;
-  g.add(deck, under, top, ring, fan);
+  fan.position.z = -0.26;
+  // how many cards he holds, in a badge beside them
+  const cc = Object.assign(document.createElement("canvas"), { width: 64, height: 64 });
+  const count = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cc) }));
+  count.scale.setScalar(0.045);
+  count.position.set(0.2, 0.03, -0.26);
+  g.add(deck, under, top, mark, fan, count);
   for (const o of [deck, under, top]) o.castShadow = true;
-  return { g, geo, deck, under, top, ring, fan, backMat: new THREE.MeshStandardMaterial({ map: uyTex(null), roughness: 0.5 }) };
+  return { g, geo, deck, deckTop, under, top, ring, glow, mark, fan, count, cc, popT: 0, lastColor: null, floats: [],
+    backMat: new THREE.MeshStandardMaterial({ map: uyTex(null), alphaTest: 0.5, roughness: 0.5 }) };
 })();
-const uyHand = document.getElementById("uyes-hand");
+// a word that pops up over the table and floats away: "Skip!", "+2", a Wild's colour
+function uyFloat(text, color, at) {
+  const cv = Object.assign(document.createElement("canvas"), { width: 256, height: 96 }), x = cv.getContext("2d");
+  x.font = `800 60px "Archivo", sans-serif`; x.textAlign = "center"; x.textBaseline = "middle"; x.lineJoin = "round";
+  x.lineWidth = 12; x.strokeStyle = "#2b2420"; x.strokeText(text, 128, 50);
+  x.fillStyle = color; x.fillText(text, 128, 50);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), depthTest: false, transparent: true }));
+  s.renderOrder = 10;
+  s.scale.set(0.16, 0.06, 1);
+  s.position.copy(at);
+  UY.g.add(s);
+  UY.floats.push({ s, y: at.y, t0: performance.now() });
+}
+function animateUyes(now) { // every frame: the floating words, the colour pop, the deck when you're stuck
+  if (!UY.g.visible) return;
+  UY.floats = UY.floats.filter((f) => {
+    const k = (now - f.t0) / 1100;
+    if (k >= 1) { UY.g.remove(f.s); f.s.material.map.dispose(); f.s.material.dispose(); return false; }
+    f.s.position.y = f.y + 0.05 * k;
+    f.s.material.opacity = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4;
+    f.s.scale.set(0.16, 0.06, 1).multiplyScalar(k < 0.12 ? 0.6 + (k / 0.12) * 0.4 : 1);
+    return true;
+  });
+  UY.mark.scale.setScalar(1 + 0.6 * (1 - Math.min(1, (now - UY.popT) / 400)) ** 3);
+  const G = game?.uyes ? game : null, s = 0.5 + 0.5 * Math.sin(now / 180), mine = G && !G.over && G.turn === 0 && !G.busy;
+  const stuck = mine && G.drawn === null && G.picking === null && !G.hands[0].some((c) => canPlay(c, G.pile.at(-1), G.color));
+  UY.deckTop.emissiveIntensity = stuck ? 0.15 + 0.45 * s : 0;
+}
+const uyHand = document.getElementById("uyes-hand"), uyTurnText = document.getElementById("uyes-turn"), uyClock = document.getElementById("uyes-clock");
 const uySleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const SAYU = { hit: ["Draw up! 😏", "Sorry, not sorry.", "Take that."], ouch: ["Hey!", "Ugh, really?", "Rude."],
   again: ["My go again.", "Skip! 😄"], pass: ["Pass.", "Nothing. Pass."] };
@@ -1868,6 +1922,9 @@ function quitUyes() {
   UY.g.visible = false;
   uyHand.hidden = true;
   uyHand.innerHTML = "";
+  uyTurnText.hidden = true;
+  uyClock.hidden = true;
+  document.getElementById("seat-extra").classList.remove("call");
   if (seat === null || !myDrink) return standUp();
   picking = myDrink.userData.drink; // back on your stool, drink and all
   sitAt(seat);
@@ -1878,8 +1935,11 @@ function uyDraw(p, n) { // p: 0 you, 1 him; an empty deck is the pile reshuffled
     if (!G.deck.length) { const top = G.pile.pop(); G.deck = shuffle(G.pile); G.pile = [top]; }
     if (!G.deck.length) break;
     G.hands[p].push(G.deck.pop());
+    // not the deal: each card flies off the deck to whoever drew it, one after another
+    if (G.pile.length) setTimeout(() => game === G && uyFly(null, UY.deck.position.clone().setY(UY.deck.scale.y + 0.004), UY_SIDE[p], p ? -0.6 : 0.6), k * 140);
   }
   if (G.pile.length) uyTable();
+  if (G.pile.length && n > 1) uyFloat(`+${n}`, "#ff5a3c", new THREE.Vector3(0, 0.06, p ? -0.26 : 0.14)); // a penalty, on the side that takes it
 }
 function uyTable() { // the deck's height, the pile's top two cards, the colour ring, his cards
   const G = game;
@@ -1888,20 +1948,28 @@ function uyTable() { // the deck's height, the pile's top two cards, the colour 
   UY.top.material.map = uyTex(G.pile.at(-1)); UY.top.material.needsUpdate = true;
   UY.under.visible = G.pile.length > 1;
   if (G.pile.length > 1) { UY.under.material.map = uyTex(G.pile.at(-2)); UY.under.material.needsUpdate = true; }
-  UY.ring.material.color.set(UY_COL[G.color]);
+  UY.ring.material.color.set(UY_COL[G.color]); UY.glow.material.color.set(UY_COL[G.color]);
+  if (G.color !== UY.lastColor) { UY.lastColor = G.color; UY.popT = performance.now(); }
   const n = G.hands[1].length, gap = Math.min(0.025, 0.3 / n);
+  const cx = UY.cc.getContext("2d"); // his count
+  cx.clearRect(0, 0, 64, 64);
+  cx.fillStyle = "#2b2420"; cx.beginPath(); cx.arc(32, 32, 30, 0, 7); cx.fill();
+  cx.fillStyle = "#fff"; cx.font = `800 ${n > 9 ? 28 : 34}px "Archivo", sans-serif`; cx.textAlign = "center"; cx.textBaseline = "middle";
+  cx.fillText(n, 32, 34);
+  UY.count.material.map.needsUpdate = true;
   while (UY.fan.children.length > n) UY.fan.remove(UY.fan.children.at(-1));
   while (UY.fan.children.length < n) UY.fan.add(new THREE.Mesh(UY.geo, UY.backMat));
   UY.fan.children.forEach((m, k) => { m.position.set((k - (n - 1) / 2) * gap, 0.001 + k * 0.0003, Math.abs(k - (n - 1) / 2) * gap * 0.15); m.rotation.y = (k - (n - 1) / 2) * -0.06; });
 }
-function uyFly(card, p) { // a card flies onto the pile, from his side or from yours
-  const m = new THREE.Mesh(UY.geo, new THREE.MeshStandardMaterial({ map: uyTex(card), roughness: 0.5 }));
-  const a = new THREE.Vector3(0, 0.05, p ? -0.17 : 0.3), b = UY.top.position.clone().setY(0.006), t0 = performance.now(), G = game;
+const UY_SIDE = [new THREE.Vector3(0, 0.05, 0.3), new THREE.Vector3(0, 0.01, -0.26)]; // your hand (toward you), his cards
+function uyFly(card, a, b, spin) { // a card flies from a to b (null: face down), turning by spin on the way
+  const m = new THREE.Mesh(UY.geo, new THREE.MeshStandardMaterial({ map: uyTex(card), alphaTest: 0.5, roughness: 0.5 }));
+  const t0 = performance.now(), G = game;
   UY.g.add(m);
   return new Promise((done) => (function step(now) {
     const k = Math.min(1, (now - t0) / 380), e = 1 - (1 - k) ** 3;
     m.position.lerpVectors(a, b, e).y += Math.sin(Math.PI * k) * 0.06;
-    m.rotation.y = (1 - e) * (p ? 1.2 : -0.8) - 0.08 * e;
+    m.rotation.y = (1 - e) * spin - 0.08 * e;
     if (k < 1 && game === G) return requestAnimationFrame(step);
     UY.g.remove(m); m.material.dispose(); done();
   })(t0));
@@ -1917,13 +1985,16 @@ async function uyPlay(p, i, color) {
   const G = game;
   G.busy = true; G.picking = null; G.drawn = null;
   const card = G.hands[p].splice(i, 1)[0];
+  if (!G.hands[p].length) clearTimeout(G.callTimer); // going out: no draw-two while the last card's in the air
   uyRender(); uyTable();
-  await uyFly(card, p);
+  await uyFly(card, UY_SIDE[p], UY.top.position.clone().setY(0.006), p ? 1.2 : -0.8);
   if (game !== G) return; // quit mid-throw
   G.pile.push(card);
   G.color = card.c ?? color;
   uyTable();
   feedback(UY.top, false); // a slap as it lands
+  const word = card.v === "skip" ? "Skip!" : card.v === "reverse" ? "Reverse!" : card.c ? null : G.color[0].toUpperCase() + G.color.slice(1) + "!";
+  if (word) uyFloat(word, card.c ? "#fff" : UY_COL[G.color], UY.top.position.clone().setY(0.05));
   if (!G.hands[p].length) return uyEnd(p ? "lose" : "win");
   const pen = penalty(card);
   if (pen) uyDraw(1 - p, pen);
@@ -1936,8 +2007,10 @@ function uyTurn(p) {
   const G = game;
   G.turn = p;
   G.busy = p === 1;
+  G.picking = null; G.drawn = null; // a new go: no colour picker or drawn card left over (Pass with the picker open)
   uyBar(); uyRender();
-  if (p === 1) setTimeout(() => game === G && uyBot(), 1000);
+  // he waits out your UYES! call before he plays: caught, you draw two first, not on top of his card
+  if (p === 1) setTimeout(() => game === G && uyBot(), G.mustCall ? 2600 : 1000);
 }
 async function uyBot() {
   const G = game, h = G.hands[1];
@@ -1965,6 +2038,16 @@ function uyArm() { // down to one card: say UYES! within 2.5 s, or he catches yo
   const G = game;
   G.mustCall = true;
   clearTimeout(G.callTimer);
+  const t0 = Date.now(); // the seconds left, counting down in the top corner under whose go it is
+  clearInterval(G.clock);
+  const tick = () => {
+    const on = game === G && G.mustCall && !G.over;
+    uyClock.hidden = !on;
+    if (!on) return clearInterval(G.clock);
+    uyClock.textContent = `📣 UYES! ${Math.max(0, 2.5 - (Date.now() - t0) / 1000).toFixed(1)}s`;
+  };
+  tick();
+  G.clock = setInterval(tick, 100);
   G.callTimer = setTimeout(() => {
     if (game !== G || !G.mustCall || G.over) return;
     G.mustCall = false;
@@ -1991,10 +2074,20 @@ function uyBar() {
     : mine && !G.busy && G.picking === null ? ["Draw", uyDrawMine] : null;
   extra.hidden = !act;
   if (act) { extra.textContent = act[0]; extra.onclick = (e) => { e.stopPropagation(); act[1](); }; }
+  extra.classList.toggle("call", G.mustCall && !G.over); // the UYES! button drains over its 2.5 s
+  // whose go, big in the top corner; it pops when it changes
+  const turn = G.over ? "" : G.turn === 0 ? "Your turn" : "Bankza's turn";
+  uyTurnText.hidden = !turn;
+  if (turn && uyTurnText.textContent !== turn) {
+    uyTurnText.textContent = turn;
+    uyTurnText.classList.toggle("his", G.turn === 1);
+    uyTurnText.classList.remove("pop"); void uyTurnText.offsetWidth; uyTurnText.classList.add("pop");
+  }
 }
 function uyRender() { // your hand: the cards you can play stand up; a Wild asks for a colour first
   const G = game, top = G.pile.at(-1), mine = G.turn === 0 && !G.busy && !G.over;
   uyHand.style.bottom = innerHeight - document.getElementById("seatbar").getBoundingClientRect().top + 10 + "px";
+  uyHand.classList.toggle("mine", mine);
   if (G.picking !== null) {
     uyHand.innerHTML = `<div class="pick">Pick a colour ${COLORS.map((c) => `<button class="sw" data-c="${c}" style="background:${UY_COL[c]}" aria-label="${c}"></button>`).join("")}</div>`;
     return;
@@ -2003,7 +2096,12 @@ function uyRender() { // your hand: the cards you can play stand up; a Wild asks
     const ok = mine && (G.drawn === null ? canPlay(c, top, G.color) : i === G.drawn);
     return `<button class="card${ok ? " ok" : ""}" data-i="${i}"${ok ? "" : " disabled"} aria-label="${uyName(c)}"><img src="${uyUrl(c)}" alt=""></button>`;
   }).join("");
+  // a big hand overlaps more, so it always fits across the screen (each card keeps at least a corner showing)
+  const w = uyHand.querySelector("img")?.offsetWidth || 0, n = G.hands[0].length;
+  const step = n > 1 ? Math.max(12, Math.min(w - 34, (innerWidth - 40 - w) / (n - 1))) : w;
+  uyHand.style.setProperty("--ov", `${step - w}px`);
 }
+addEventListener("resize", () => game?.uyes && uyRender()); // a phone turned sideways: fit the hand again
 uyHand.onclick = (e) => {
   e.stopPropagation();
   const G = game, b = e.target.closest("button");
@@ -2307,6 +2405,7 @@ renderer.setAnimationLoop(() => {
   placeCamera();
   animateCharacter(dt);
   animateLatte(dt);
+  animateUyes(performance.now());
   animateProps(dt);
   animateNotes(dt);
   life.update(dt, performance.now() / 1000);

@@ -76,16 +76,35 @@
     #uyes-hand { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 4; display: flex; align-items: flex-end;
                  max-width: calc(100vw - 24px); overflow-x: auto; padding: 18px 8px 4px; scrollbar-width: none; }
     #uyes-hand[hidden] { display: none; }
-    #uyes-hand .card { flex: none; border: 0; padding: 0; margin-left: -22px; background: none; cursor: pointer; border-radius: 8px; transition: transform .15s; }
+    #uyes-hand .card { flex: none; border: 0; padding: 0; margin-left: var(--ov, -34px); background: none; cursor: pointer; border-radius: 8px; transition: transform .15s; }
     #uyes-hand .card:first-child { margin-left: 0; }
-    #uyes-hand .card img { display: block; width: 64px; height: 96px; border-radius: 7px; box-shadow: 0 3px 10px rgba(0,0,0,.3); }
-    #uyes-hand .card.ok { transform: translateY(-12px); }
-    #uyes-hand .card.ok:hover, #uyes-hand .card.ok:focus-visible { transform: translateY(-18px); }
-    #uyes-hand .card:disabled { cursor: default; filter: brightness(.72); }
+    #uyes-hand .card img { display: block; width: 100px; height: 150px; border-radius: 11px; box-shadow: 0 3px 10px rgba(0,0,0,.3); }
+    #uyes-hand .card.ok { transform: translateY(-14px); }
+    #uyes-hand .card.ok img { box-shadow: 0 0 0 3px var(--sign), 0 6px 16px rgba(0,0,0,.35); } /* yours to play */
+    #uyes-hand .card.ok:hover, #uyes-hand .card.ok:focus-visible { transform: translateY(-22px); }
+    #uyes-hand .card:disabled { cursor: default; filter: brightness(.85); }
+    #uyes-hand.mine .card:disabled { filter: brightness(.55) saturate(.5); } /* your go: the ones that don't fit fade back */
+    /* whose go it is, big in the top corner */
+    #uyes-turn { position: fixed; top: 16px; left: 16px; z-index: 4; pointer-events: none; transform-origin: 0 50%;
+                 font: 800 clamp(24px, 5vw, 38px)/1 "Archivo", sans-serif; font-stretch: 125%; color: var(--sign);
+                 -webkit-text-stroke: 2.5px var(--ink); paint-order: stroke fill; text-shadow: 0 4px 0 var(--ink), 0 10px 24px rgba(0,0,0,.25); }
+    #uyes-turn[hidden] { display: none; }
+    #uyes-turn.his { color: #8fb6ff; }
+    #uyes-clock { position: fixed; top: calc(28px + clamp(24px, 5vw, 38px)); left: 16px; z-index: 4; pointer-events: none;
+                  font: 800 clamp(18px, 3.6vw, 26px)/1 "Archivo", sans-serif; font-stretch: 125%; font-variant-numeric: tabular-nums;
+                  color: #ff5a3c; -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; text-shadow: 0 3px 0 var(--ink); }
+    #uyes-clock[hidden] { display: none; }
+    #uyes-turn.pop { animation: pop .3s cubic-bezier(.2,1.4,.4,1); }
+    /* UYES! to call: red, draining left to right over the 2.5 s you have */
+    #seatbar #seat-extra.call { color: #fff; background: linear-gradient(90deg, #e8402a 50%, #efe9dd 50%) 0 0 / 200% 100%;
+                                animation: drain 2.5s linear forwards, nudge .5s ease-in-out infinite alternate; }
+    @keyframes drain { to { background-position: 100% 0; color: var(--ink); } }
+    @keyframes nudge { to { transform: scale(1.08); } }
+    @media (prefers-reduced-motion: reduce) { #uyes-turn.pop { animation: none; } #seatbar #seat-extra.call { animation: drain 2.5s linear forwards; } }
     #uyes-hand .pick { display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 18px; border-radius: 999px; background: var(--paper);
                        box-shadow: 0 6px 20px rgba(0,0,0,.2); font-weight: 600; }
     #uyes-hand .sw { width: 40px; height: 40px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.3); cursor: pointer; }
-    @media (max-width: 600px) { #uyes-hand .card img { width: 50px; height: 75px; } #uyes-hand .card { margin-left: -18px; } }
+    @media (max-width: 600px) { #uyes-hand .card img { width: 76px; height: 114px; border-radius: 9px; } }
     #seatbar #seat-move { background: #efe9dd; }
     #seatbar #seat-move[hidden], #seatbar #seat-extra[hidden] { display: none; }
     #seatbar #seat-extra { background: #efe9dd; }
@@ -203,6 +222,8 @@
   <button id="help" aria-label="How to use this page">?</button>
   <button id="mute" aria-label="Sound on or off">🔊</button>
   <div id="uyes-hand" hidden></div>
+  <div id="uyes-turn" hidden aria-live="polite"></div>
+  <div id="uyes-clock" hidden></div>
   <div id="seatbar" hidden><span id="seat-title"></span><span class="hint" id="seat-hint">Tap your drink to sip</span><button id="seat-extra" hidden></button><button id="seat-move">Change seat</button><button id="seat-leave">Back to the street</button></div>
   <div id="tour" hidden role="dialog" aria-modal="true" aria-labelledby="tour-title">
     <div class="bubble">
@@ -241,6 +262,6 @@
   <div id="loading" role="progressbar" aria-label="Loading the shop" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
     <div class="sign"><h1>NAKANG</h1><div class="bar"><i></i></div><small>Opening the shop… 0%</small></div>
   </div>
-  <script type="module" src="main.js?v=172"></script>
+  <script type="module" src="main.js?v=177"></script>
 </body>
 </html>
