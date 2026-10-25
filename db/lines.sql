@@ -5,11 +5,11 @@
 --           street, street_far, window (on the street, near the shop), door_shut, doorway, inside (standing in the
 --           shop), seated, indoors (inside or seated in the shop), seat:center_table, seat:window_table,
 --           seat:mcm_table, seat:cart_body (the plastic chair outside), center_free (not at the middle table),
---           drink_half, drink_empty, music_on, music_off, dancing, day, sunset, night, won_easy (you beat him on
+--           drink_half, drink_empty, poured (you've tried latte art), music_on, music_off, dancing, day, sunset, night, won_easy (you beat him on
 --           Easy), anywhere; greet is his hello as he waves when you reach the window (said then, not when idle;
 --           greet+door_shut etc. are used instead whenever they hold)
 --   egg     a hint: once you've found this easter egg he stops hinting at it. One of: dance, checkers,
---           checkers_hard, cat, records, honk, bird, chime, wall_lamp, drag, guestbook, night
+--           checkers_hard, cat, records, honk, bird, chime, wall_lamp, drag, guestbook, night, latte
 --   pose    what he does as he says it: wave, nod, shrug, look, point (look and point need a target)
 --   target  the scene object he looks or points at (HOT_cat, vinyl_shelf, HOT_record, HOT_board, ...)
 create table if not exists lines (
@@ -74,5 +74,11 @@ insert into lines (id, spot, text, egg, pose, target) values
   ('hint_lamp',      'indoors+day',            'That orange lamp has a switch.',                           'wall_lamp', 'point', 'HOT_wall_lamp'),
   ('hint_drag',      'anywhere',               'Drag to look around.',                                     'drag', 'nod', null),
   ('hint_board',     'indoors',                'Leave me a doodle on the board?',                          'guestbook', 'point', 'HOT_board'),
+  ('hint_latte',     'inside',                 'Order an iced latte and I might let you pour it yourself.', 'latte', 'nod', null),
+  ('hint_latte2',    'indoors',                'There’s a milk jug back here with your name on it. Order an iced latte.', 'latte', 'nod', null),
+  ('hint_latte3',    'drink_empty',            'Another? Make it a latte and you can pour it yourself.', 'latte', 'nod', null),
+  ('latte_again',    'indoors+poured',         'Fancy another go at latte art? It’s on the menu now.', null, 'nod', null),
+  ('latte_tulip',    'indoors+poured',         'Nailed the heart? Try a tulip next.', null, 'shrug', null),
+  ('latte_refill',   'drink_empty+poured',     'Pour the next one yourself? Latte art’s on the menu.', null, 'nod', null),
   ('hint_night',     'day',                    'Come back after dark. The street lights up.',              'night', 'nod', null)
 on conflict (id) do nothing;

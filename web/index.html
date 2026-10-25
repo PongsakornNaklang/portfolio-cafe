@@ -73,7 +73,8 @@
                font-weight: 600; white-space: nowrap; }
     #seatbar[hidden] { display: none; }
     #seatbar #seat-move { background: #efe9dd; }
-    #seatbar #seat-move[hidden] { display: none; }
+    #seatbar #seat-move[hidden], #seatbar #seat-extra[hidden] { display: none; }
+    #seatbar #seat-extra { background: #efe9dd; }
     #seatbar .hint { color: #7a7266; font-weight: 400; font-size: 13px; }
     #seatbar button { font: 600 14px "Anuphan", sans-serif; border: 0; border-radius: 999px; padding: 7px 14px; background: var(--sign); cursor: pointer; }
     /* keep clear of the sound and ? buttons in the corner */
@@ -187,7 +188,7 @@
   <div id="tip"></div>
   <button id="help" aria-label="How to use this page">?</button>
   <button id="mute" aria-label="Sound on or off">🔊</button>
-  <div id="seatbar" hidden><span id="seat-title"></span><span class="hint" id="seat-hint">Tap your drink to sip</span><button id="seat-move">Change seat</button><button id="seat-leave">Back to the street</button></div>
+  <div id="seatbar" hidden><span id="seat-title"></span><span class="hint" id="seat-hint">Tap your drink to sip</span><button id="seat-extra" hidden></button><button id="seat-move">Change seat</button><button id="seat-leave">Back to the street</button></div>
   <div id="tour" hidden role="dialog" aria-modal="true" aria-labelledby="tour-title">
     <div class="bubble">
       <div class="step" id="tour-step"></div>
@@ -225,6 +226,6 @@
   <div id="loading" role="progressbar" aria-label="Loading the shop" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
     <div class="sign"><h1>NAKANG</h1><div class="bar"><i></i></div><small>Opening the shop… 0%</small></div>
   </div>
-  <script type="module" src="main.js?v=145"></script>
+  <script type="module" src="main.js?v=162"></script>
 </body>
 </html>

@@ -5,6 +5,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { cards, site, drinks } from "./content.js?v=30";
 import { createSound, createStreetLife } from "./life.js?v=25";
 import { startBoard, legalMoves, play, botMove } from "./checkers.js?v=1";
+import { surface as latteSurface, draw as drawLatte, reset as resetLatte, pourStep, jugLeft, toGrid, quip, score as latteScore } from "./latte.js?v=6";
 
 // ---------------------------------------------------------------- time of day (visitor's clock; ?time=night to test)
 const PRESETS = {
@@ -462,6 +463,7 @@ function hotspotAt(x, y) {
 const onScene = (e) => e.target === renderer.domElement;
 addEventListener("pointermove", (e) => {
   if (game) { renderer.domElement.style.cursor = onScene(e) ? "pointer" : ""; tip.style.opacity = 0; return; } // mid-game: just the board
+  if (latte) { renderer.domElement.style.cursor = onScene(e) ? "crosshair" : ""; tip.style.opacity = 0; return; } // the jug follows it
   const o = onScene(e) ? hotspotAt(e.clientX, e.clientY) : null;
   // a hand that grabs the view wherever you can drag to look around; the pointing hand on things you can tap
   renderer.domElement.style.cursor = gaze.drag && gaze.moved ? "grabbing" : o ? "pointer" : !director || seated ? "grab" : "";
@@ -492,6 +494,7 @@ function aboutBubble(actions, r) {
 addEventListener("click", (e) => {
   if (gaze.moved) return; // that was a drag to look around
   if (game && onScene(e)) return boardClick(e);
+  if (latte && onScene(e)) return; // pouring, not tapping things
   if (bubble?.dataset.idle && bubble.contains(e.target)) return closeBubble(); // tap what he said to put it away
   if (bubble?.contains(e.target) || e.target.closest?.("#tour, #help, #board, #book, #kofi, #mute, #seatbar")) return;
   closeBubble();
@@ -1200,13 +1203,18 @@ function drinkMenu(r) {
   const sold = (d) => counts?.[`drink:${d.id}`] || 0;
   const best = drinks.reduce((a, d) => (sold(d) > sold(a) ? d : a)); // the most ordered so far, by everyone
   showBubble({ title: "Menu", body: "What can I get you?",
-    actions: drinks.map((d) => ({ label: `${d.emoji} ${d.name}${d === best && sold(d) ? " · ★ Best seller" : ""}`, run: () => order(d) })) }, r);
+    actions: [...drinks.map((d) => ({ label: `${d.emoji} ${d.name}${d === best && sold(d) ? " · ★ Best seller" : ""}`, run: () => order(d) })),
+      ...(eggs.has("latte") ? [{ label: "🎨 Latte art", egg: true, run: () => startLatte() }] : [])] }, r); // once you've poured one
 }
 function order(d) {
   closeBubble();
   bump(`drink:${d.id}`);
   wave();
   const me = scene.getObjectByName("HOT_character");
+  if (d.id === "latte" && !eggs.has("latte")) // a latte, and you've never poured one: he offers you the jug
+    return showBubble({ title: `${d.name}, coming right up!`, body: "Want to try pouring one yourself?", actions: [
+      { label: "🎨 Pour it myself", egg: true, run: () => startLatte("heart", () => pickSeat(d)) },
+      { label: "Just sit down", run: () => { closeBubble(); pickSeat(d); } }] }, screenRect(me));
   showBubble({ title: `${d.name}, coming right up!`, body: "Sit anywhere you like." }, screenRect(me), 1800);
   setTimeout(() => pickSeat(d), 1900);
 }
@@ -1262,6 +1270,8 @@ function showSeatBar(title, hint, leave, onLeave, onMove = null) {
   btn.onclick = (e) => { e.stopPropagation(); onLeave(); };
   const move = document.getElementById("seat-move");
   move.hidden = !onMove;
+  move.textContent = "Change seat"; // games relabel it after
+  document.getElementById("seat-extra").hidden = true; // latte art shows it
   move.onclick = (e) => { e.stopPropagation(); onMove(); };
 }
 // drag to look around (mouse or finger), on the street and while seated; a drag doesn't count as a tap.
@@ -1305,6 +1315,7 @@ function turned(pos, dir) { // called by placeCamera: where to look from pos onc
 function fill(drink) {
   const lq = drink.getObjectByName(drink.name + "_liquid") || drink.children.find((c) => /_liquid$/.test(c.name));
   if (lq) lq.scale.y = Math.max(0.02, drink.userData.level);
+  if (lq?.userData.shrink) lq.scale.x = lq.scale.z = 1 - lq.userData.shrink * (1 - drink.userData.level); // a cup that narrows
 }
 function sip() {
   if (!myDrink) return;
@@ -1702,6 +1713,184 @@ function startTour(force = false) {
   next.focus();
 }
 
+// ---------------------------------------------------------------- latte art: pour a heart in a cup on the counter
+// Order a latte and he offers to let you pour it (after that, Latte art is on the menu): an espresso sits on the counter in front of the PICKUP tray, the camera
+// looks down into it from your side, and a milk jug follows your finger above the cup. Hold to tip it and pour,
+// then pull through toward you to shape it; Serve when it looks right (or when the jug's empty). The coffee's
+// surface is latte.js; this is the cup, the jug and the controls.
+const LT = (() => {
+  const g = new THREE.Group();
+  g.position.set(-0.1, 1.35, -1.15); // on the counter top, the free stretch in front of the PICKUP tray
+  g.rotation.y = Math.PI / 2; // its +z (toward you) faces the walkway, where you stand
+  g.name = "latte_cup";
+  g.visible = false;
+  scene.add(g);
+  const china = new THREE.MeshStandardMaterial({ color: 0xf7f4ee, roughness: 0.3, side: THREE.DoubleSide });
+  const saucer = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.068, 0.012, 48), china);
+  saucer.position.y = 0.006;
+  // the cup, turned on a lathe: out from the foot, up the outside to the rim, back down the inside
+  const SURF = 0.08, RW = 0.051; // the coffee's height in the cup and its radius
+  const cup = new THREE.Mesh(new THREE.LatheGeometry([[0, 0.012], [0.03, 0.012], [0.036, 0.016], [0.046, 0.04], [0.054, 0.068],
+    [0.058, 0.092], [0.055, 0.094], [0.052, 0.07], [0.044, 0.044], [0.034, 0.03], [0, 0.028]].map(([x, y]) => new THREE.Vector2(x, y)), 48), china);
+  const handle = new THREE.Mesh(new THREE.TorusGeometry(0.019, 0.0055, 12, 24, Math.PI), china);
+  handle.position.set(0.056, 0.058, 0);
+  handle.rotation.z = -Math.PI / 2; // a C on the cup's right
+  const tex = new THREE.CanvasTexture(latteSurface);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const coffee = new THREE.Mesh(new THREE.CircleGeometry(RW, 64).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.25 }));
+  coffee.position.y = SURF;
+  g.add(saucer, cup, handle, coffee);
+  // the milk jug: brushed steel, its spout tip at the group's origin (pointing toward you), the body behind it
+  const steel = new THREE.MeshStandardMaterial({ color: 0xeef1f4, metalness: 0.85, roughness: 0.32, side: THREE.DoubleSide });
+  const jug = new THREE.Group(), body = new THREE.Group();
+  body.add(new THREE.Mesh(new THREE.LatheGeometry([[0, -0.085], [0.036, -0.085], [0.04, -0.078], [0.041, -0.05], [0.035, -0.014],
+    [0.033, 0], [0.031, 0], [0.033, -0.014], [0.039, -0.05], [0.034, -0.08], [0, -0.08]].map(([x, y]) => new THREE.Vector2(x, y)), 40), steel));
+  const grip = new THREE.Mesh(new THREE.TorusGeometry(0.024, 0.005, 10, 20, Math.PI).rotateZ(Math.PI / 2), steel);
+  grip.position.set(0, -0.042, -0.038); grip.rotation.y = -Math.PI / 2; // a loop on the back, from the wall outward
+  body.add(grip);
+  body.position.z = -0.033; // so the rim's front edge is the spout
+  const milkMat = new THREE.MeshStandardMaterial({ color: 0xfbf7ee, roughness: 0.4 });
+  // the milk in the jug: its inside shape, cut off level at the milk's height (a clipping plane, so it stays flat
+  // whichever way the jug tips; the cut shows the far side's inside, white, so it reads as the surface)
+  const level = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
+  const milkIn = new THREE.Mesh(new THREE.LatheGeometry([[0, -0.079], [0.033, -0.079], [0.038, -0.05], [0.032, -0.014], [0.03, -0.001], [0, -0.001]]
+    .map(([x, y]) => new THREE.Vector2(x, y)), 32), new THREE.MeshStandardMaterial({ color: 0xfbf7ee, roughness: 0.5, side: THREE.DoubleSide, clippingPlanes: [level] }));
+  body.add(milkIn);
+  renderer.localClippingEnabled = true;
+  jug.add(body);
+  const stream = new THREE.Mesh(new THREE.CylinderGeometry(0.0022, 0.0032, 1, 10), milkMat);
+  g.add(jug, stream);
+  for (const m of [saucer, cup, handle, ...body.children]) m.castShadow = true;
+  return { g, tex, saucer, cup, handle, coffee, jug, body, milkIn, level, stream, SURF, RW, plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -(1.35 + SURF)) };
+})();
+let latte = null; // { shape, after, aim, spout, held, last, tilt, served }
+const LATTE_SHAPES = { heart: "♥ Heart", tulip: "🌷 Tulip" };
+function latteShot() {
+  const c = LT.g.position, k = Math.max(0.65, Math.min(1, camera.aspect)); // closer on a phone held upright
+  return { pos: new THREE.Vector3(c.x + 0.26 * k, c.y + 0.05 + 0.31 * k, c.z), look: new THREE.Vector3(c.x - 0.03, c.y + 0.05, c.z), fov: 40 };
+}
+// after: what happens when you're done (your order: pick a seat); kept through Again and the other shape
+function startLatte(shape = latte?.shape || "heart", after = latte?.after) {
+  if (seated) standUp();
+  closeBubble();
+  foundEgg("latte");
+  resetLatte();
+  drawLatte(shape);
+  LT.tex.needsUpdate = true;
+  LT.g.visible = true;
+  latte = { shape, after, aim: new THREE.Vector3(0, 0, -0.01), spout: new THREE.Vector3(0, 0, -0.01), held: false, last: null, tilt: 0, served: null };
+  director = latteShot();
+  lockScroll(true);
+  renderer.domElement.style.touchAction = "none"; // a finger drag pours instead of scrolling
+  gesture("look", "latte_cup"); // he glances over at your cup
+  latteBar();
+}
+function quitLatte() {
+  const after = latte?.after;
+  latte = null;
+  LT.g.visible = false;
+  standUp(); // camera back to where you were walking, the bar gone
+  after?.();
+}
+function latteBar() {
+  const L = latte, best = latteBest()[L.shape];
+  const title = `🎨 ${LATTE_SHAPES[L.shape]} · milk ${Math.round(jugLeft() * 100)}%`;
+  const hint = "Hold to pour · pull through toward you" + (best ? ` · best ${best}%` : "");
+  showSeatBar(title, hint, "Quit", quitLatte, serveLatte);
+  document.getElementById("seat-move").textContent = "Serve";
+}
+const latteBest = () => { try { return JSON.parse(localStorage.getItem("nakang-latte")) || {}; } catch { return {}; } };
+function serveLatte() {
+  const L = latte;
+  if (!L || L.served !== null) return;
+  L.held = false;
+  L.served = latteScore(L.shape);
+  const best = latteBest(), beat = L.served > (best[L.shape] || 0);
+  if (beat) { best[L.shape] = L.served; try { localStorage.setItem("nakang-latte", JSON.stringify(best)); } catch {} }
+  const stars = L.served >= 80 ? 3 : L.served >= 55 ? 2 : L.served >= 30 ? 1 : 0;
+  drawLatte(null); // the guide goes: just your latte
+  LT.tex.needsUpdate = true;
+  const title = `${L.served}% ${"★".repeat(stars)}${"☆".repeat(3 - stars)}${beat && stars ? " New best!" : ""}`;
+  const other = L.shape === "heart" ? "tulip" : "heart";
+  showSeatBar(title, `Bankza: “${quip(L.served)}”`, "☕ Drink it", drinkLatte, () => startLatte(other));
+  document.getElementById("seat-move").textContent = `Try ${LATTE_SHAPES[other]}`;
+  const again = document.getElementById("seat-extra");
+  again.hidden = false;
+  again.textContent = "Again";
+  again.onclick = (e) => { e.stopPropagation(); startLatte(L.shape); };
+  speak({ text: quip(L.served) }); // he says it too
+  if (L.served >= 65) { wave(); tune([523, 659, 784, 1047], 0.11, "triangle"); } else gesture("shrug");
+}
+// take your cup to a seat: a copy of it, art and all, becomes a drink like the ones on the menu
+function drinkLatte() {
+  const snap = Object.assign(document.createElement("canvas"), { width: 256, height: 256 }); // the art as it is now
+  snap.getContext("2d").drawImage(latteSurface, 0, 0, 256, 256);
+  const map = new THREE.CanvasTexture(snap);
+  map.colorSpace = THREE.SRGBColorSpace;
+  const lq = new THREE.Group(); // sipping sinks it toward the bottom, narrower as the cup narrows (see fill)
+  lq.name = "latteart_liquid";
+  lq.position.y = 0.03;
+  lq.userData.shrink = 0.3;
+  const coffee = new THREE.Mesh(LT.coffee.geometry, new THREE.MeshStandardMaterial({ map, roughness: 0.25 }));
+  coffee.position.y = LT.SURF - 0.03;
+  lq.add(coffee);
+  drinkTpl.latteart = new THREE.Group().add(LT.saucer.clone(), LT.cup.clone(), LT.handle.clone(), lq);
+  const d = { id: "latteart", name: `Your ${LATTE_SHAPES[latte.shape]} latte`, emoji: "🎨" };
+  latte = null;
+  LT.g.visible = false;
+  standUp();
+  pickSeat(d);
+}
+// the jug goes where you point, on the coffee's level, kept near the cup
+const _lp = new THREE.Vector3();
+function latteAim(e) {
+  ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  if (!ray.ray.intersectPlane(LT.plane, _lp)) return;
+  LT.g.worldToLocal(_lp).setY(0);
+  if (_lp.length() > 0.09) _lp.setLength(0.09);
+  latte.aim.copy(_lp);
+}
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  if (!latte || latte.served !== null) return;
+  renderer.domElement.setPointerCapture(e.pointerId);
+  latteAim(e);
+  latte.spout.copy(latte.aim); // a finger lands where it lands; no swoop from the last spot
+  latte.held = true;
+});
+renderer.domElement.addEventListener("pointermove", (e) => { if (latte && latte.served === null) latteAim(e); });
+for (const ev of ["pointerup", "pointercancel"]) renderer.domElement.addEventListener(ev, () => { if (latte) latte.held = false; });
+let latteBarAt = 0;
+function animateLatte(dt) {
+  const L = latte;
+  if (!L) return;
+  L.spout.lerp(L.aim, Math.min(1, dt * 25));
+  const over = L.spout.length() < LT.RW, pouring = L.held && L.served === null && jugLeft() > 0;
+  L.tilt += ((pouring ? 1 : 0) - L.tilt) * Math.min(1, dt * 10);
+  const h = 0.1 - 0.06 * L.tilt, rest = 1 - L.tilt; // lowered close to the surface to pour; put down, it sits up and back so you can see the coffee
+  const yaw = D(-45), back = 0.07 * rest; // it comes in from the back right, side on to you
+  LT.jug.position.set(L.spout.x - Math.sin(yaw) * back, LT.SURF + h + 0.05 * rest, L.spout.z - Math.cos(yaw) * back);
+  const full = jugLeft();
+  LT.jug.rotation.set(D(15 + (45 + 35 * (1 - full)) * L.tilt), yaw, 0, "YXZ"); // tipped forward, further as it empties
+  // the milk stays level: a flat cut through the point on the jug's axis at its fill height (for a straight-sided jug
+  // that keeps the amount the same at any tilt), never above the spout's lip
+  LT.jug.updateMatrixWorld(true);
+  const axis = LT.body.localToWorld(_lp.set(0, -0.079 + 0.075 * full, 0)).y, lip = LT.jug.getWorldPosition(_lp).y;
+  LT.level.constant = Math.min(axis, lip - 0.001);
+  LT.milkIn.visible = full > 0;
+  LT.stream.visible = pouring && L.tilt > 0.5 && over;
+  LT.stream.scale.y = h;
+  LT.stream.position.set(L.spout.x, LT.SURF + h / 2, L.spout.z);
+  if (!pouring || L.tilt < 0.5) { L.last = null; return; }
+  const b = toGrid(L.spout.x, L.spout.z, LT.RW);
+  pourStep(L.last || b, b, dt);
+  L.last = b;
+  drawLatte(L.shape);
+  LT.tex.needsUpdate = true;
+  if (performance.now() - latteBarAt > 150) { latteBarAt = performance.now(); document.getElementById("seat-title").textContent = `🎨 ${LATTE_SHAPES[L.shape]} · milk ${Math.round(jugLeft() * 100)}%`; }
+  if (jugLeft() <= 0) serveLatte(); // the jug's empty
+}
+
 // ---------------------------------------------------------------- idle lines: leave the page alone and he talks
 // The lines are in the database (db/lines.sql). He speaks after 10 s of you doing nothing, then every 20 to 30 s at
 // most; never over a card or a dialog, in the tour, while you pick a seat or mid-game. At most one line in three is
@@ -1728,6 +1917,7 @@ const SPOT = {
   center_free: () => !atTable("center_table"),
   drink_half: () => seated && !!myDrink && drinkLeft() > 0 && drinkLeft() < 1,
   drink_empty: () => seated && !!myDrink && drinkLeft() === 0,
+  poured: () => eggs.has("latte"), // you've tried latte art
   music_on: () => musicOn(),
   music_off: () => !musicOn(),
   dancing: () => dancing,
@@ -1751,7 +1941,7 @@ for (const ev of ["pointerdown", "pointermove", "wheel", "scroll", "keydown", "t
 function idleLine() {
   const now = performance.now();
   if (now - idleSince < 10000 || now < nextLineAt || document.hidden) return;
-  if (bubble || game || picking !== null || document.querySelector("dialog[open]") || !document.getElementById("tour").hidden) return;
+  if (bubble || game || latte || picking !== null || document.querySelector("dialog[open]") || !document.getElementById("tour").hidden) return;
   const fits = lines.filter((l) => holds(l.spot) && !(l.egg && eggs.has(l.egg)));
   const hints = fits.filter((l) => l.egg), plain = fits.filter((l) => !l.egg);
   const pool = (sinceHint >= 2 || !plain.length) && hints.length ? hints : plain; // only hints fit here: hints it is
@@ -1791,6 +1981,7 @@ renderer.setAnimationLoop(() => {
   const dt = Math.min(frameClock.getDelta(), 0.1);
   placeCamera();
   animateCharacter(dt);
+  animateLatte(dt);
   animateProps(dt);
   animateNotes(dt);
   life.update(dt, performance.now() / 1000);
