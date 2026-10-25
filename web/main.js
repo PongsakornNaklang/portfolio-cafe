@@ -1208,6 +1208,8 @@ function drinkMenu(r) {
 }
 function order(d) {
   closeBubble();
+  myDrink?.parent?.remove(myDrink); // a fresh one: the old one's level doesn't carry over
+  myDrink = null;
   bump(`drink:${d.id}`);
   wave();
   const me = scene.getObjectByName("HOT_character");
@@ -1248,7 +1250,7 @@ function sitAt(i) {
   myDrink?.parent?.remove(myDrink);
   myDrink = drinkTpl[d.id].clone(true);
   myDrink.position.copy(s.spot);
-  Object.assign(myDrink.userData, { hotspot: "sip", id: d.id, level });
+  Object.assign(myDrink.userData, { hotspot: "sip", id: d.id, level, drink: d }); // drink: what you ordered (latte art isn't on the menu)
   fill(myDrink);
   gltf.scene.add(myDrink);
   seated = true;
@@ -1451,7 +1453,7 @@ function quitCheckers() {
   shelveBoard(); // back on the fridge till next time
   document.getElementById("seat-move").textContent = "Change seat";
   if (seat === null || !myDrink) return standUp();
-  picking = drinks.find((d) => d.id === myDrink.userData.id); // back on your stool, drink and all
+  picking = myDrink.userData.drink; // back on your stool, drink and all
   sitAt(seat);
 }
 function clearMarks() { for (const m of CK.marks) CK.board.remove(m); CK.marks = []; }
@@ -1575,6 +1577,37 @@ function tune(freqs, step, type, sad = false) {
       osc.connect(g).connect(lp);
       osc.start(t); osc.stop(t + len + 0.05);
     });
+  } catch {}
+}
+// he talks in little blips as a line comes up, Animal Crossing style: about one a syllable, a pause at punctuation,
+// brighter for a hello and lower for a shrug, rising at the end of a question; quiet when the sound's off
+function babble(text, pose) {
+  if (sound.muted) return;
+  try {
+    fx ??= new AudioContext();
+    fx.resume();
+    const base = pose === "wave" ? 320 : pose === "shrug" ? 180 : 240, q = /\?\s*\S*$/.test(text);
+    const lp = Object.assign(fx.createBiquadFilter(), { type: "lowpass" });
+    lp.frequency.value = 2200;
+    lp.connect(fx.destination);
+    let t = fx.currentTime + 0.03, n = 0;
+    for (const w of text.split(/\s+/)) {
+      const letters = (w.match(/\p{L}/gu) || []).length;
+      for (let i = 0; i < Math.ceil(letters / 3) && n < 18; i++, n++) {
+        const f = base * 2 ** ((Math.random() * 6 - 2) / 12) * (q && n > 2 && i === Math.ceil(letters / 3) - 1 ? 1.2 : 1);
+        const osc = fx.createOscillator(), g = fx.createGain();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(f, t);
+        osc.frequency.exponentialRampToValueAtTime(f * 0.88, t + 0.06);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.09, t + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.065);
+        osc.connect(g).connect(lp);
+        osc.start(t); osc.stop(t + 0.08);
+        t += 0.07 + Math.random() * 0.012;
+      }
+      t += /[.,!?…]$/.test(w) ? 0.16 : 0.03; // a breath between words, longer after a stop
+    }
   } catch {}
 }
 // you win: paper confetti bursts up off the board and flutters down onto the table
@@ -1838,6 +1871,8 @@ function drinkLatte() {
   const d = { id: "latteart", name: `Your ${LATTE_SHAPES[latte.shape]} latte`, emoji: "🎨" };
   latte = null;
   LT.g.visible = false;
+  myDrink?.parent?.remove(myDrink); // a fresh cup, full
+  myDrink = null;
   standUp();
   pickSeat(d);
 }
@@ -1955,9 +1990,16 @@ function idleLine() {
 function speak(l) {
   nextLineAt = performance.now() + 20000 + Math.random() * 10000;
   const r = screenRect(me);
-  const seen = r.right > 0 && r.left < innerWidth && r.bottom > 0 && r.top < innerHeight && me.getWorldPosition(_v).project(camera).z < 1;
-  const mid = innerWidth / 2, low = innerHeight - 24;
-  showBubble({ title: seen ? "" : "Bankza", body: l.text }, seen ? r : { left: mid, right: mid, top: low, bottom: low }, 4000);
+  const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2; // he's in shot if his middle is
+  const seen = cx > 0 && cx < innerWidth && cy > 0 && cy < innerHeight && me.getWorldPosition(_v).project(camera).z < 1;
+  showBubble({ title: "", body: seen ? l.text : `Bankza: ${l.text}` }, r, 4000);
+  babble(l.text, l.pose);
+  if (!seen) { // out of shot: the top corner on his side, clear of the bars, and not following him
+    bubble.anchor = null;
+    const right = camera.worldToLocal(me.getWorldPosition(_v)).x > 0;
+    Object.assign(bubble.style, { left: (right ? innerWidth - bubble.offsetWidth - 16 : 16) + "px", top: "16px" });
+    bubble.dataset.tail = "none";
+  }
   bubble.dataset.idle = "1"; // tap it to close it, so no × on it
   bubble.querySelector(".x").remove();
   bubble.setAttribute("role", "status"); // a passing remark, read out politely, not a dialog
