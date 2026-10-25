@@ -4,24 +4,35 @@ A portfolio built as a tiny 3D Bangkok shop. You scroll to walk across the stree
 
 **Live:** https://pongsakorn-naklang.vercel.app
 
-![The storefront by day](docs/storefront-day.jpg)
+![The storefront by day, a tuk-tuk passing](docs/storefront-day.jpg)
 
 ## What you can do on the page
 
 | Object | What it does |
 |---|---|
-| iPod in the PROJECTS case | Opens the iPort project |
-| Person behind the counter | Waves hello and opens About |
+| Things in the PROJECTS case | Each opens its project (the list comes from the database) |
+| Bankza behind the counter | Says hi and tells you about himself; order a drink and he walks to the machine and makes it while you watch, then you pick a seat; opens the portfolio book; dances while the music's on |
 | Menu stand | Skills, listed like a coffee menu |
 | A-frame sign | A short hello |
-| Record player | Lofi music on/off; the record spins while it plays |
 | Door | Opens and closes; when it's open you can scroll on into the shop |
-| Blue board | Opens a window for drawing a note, which then appears on the board |
+| Seats | Sit down with your drink: tap it to sip, drag to look around |
+| Record player | Music on/off; the tone arm drops onto the record and it spins |
+| Vinyl shelf | The records come off it into a row to flip through; pick one to play, or request a song |
+| Yellow book on the table | The portfolio book: every project, page by page |
+| Blue board | Draw a note on the shared guestbook |
+| Box on the bookshelf | UYES, a card game against Bankza |
+| Sleeping cat | Pet it |
+| Tip jar | Tip a coffee by PromptPay, TrueMoney or Ko-fi |
 | Wall clock | Shows the visitor's real time |
-| Pendant lamps | Switch each light on/off |
+| Lamps | Switch each light on/off |
 | Red mailbox | Contact links |
+| 7-Eleven across the road | The door chime |
+| Passing taxi or tuk-tuk | A beep; double-tap it to ride in the back while the driver chats, then "Get out" drops you at the shop |
+| Mynas on the wire | Shoo them off |
 
-The time of day follows the visitor's clock (add `?time=day`, `sunset` or `night` to the URL to force it). A three-step tour runs on the first visit; the **?** button opens it again.
+Some things are left for you to find: pouring your own latte art, a game of checkers (หมากฮอส) at the centre table, and two secret records.
+
+The time of day follows the visitor's clock (add `?time=day`, `sunset` or `night` to the URL to force it). A tour of everything you can tap runs on the first visit; the **?** button opens it again.
 
 ## How it's built
 

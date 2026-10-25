@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { cards, site, drinks } from "./content.js?v=32";
-import { createSound, createStreetLife } from "./life.js?v=25";
+import { cards, site, drinks, drivers } from "./content.js?v=33";
+import { createSound, createStreetLife } from "./life.js?v=33";
 import { startBoard, legalMoves, play, botMove } from "./checkers.js?v=1";
 import { COLORS, newDeck, shuffle, canPlay, goesAgain, penalty, botPick, botColor } from "./uyes.js?v=1";
 import { surface as latteSurface, draw as drawLatte, reset as resetLatte, pourStep, jugLeft, toGrid, quip, score as latteScore } from "./latte.js?v=6";
@@ -410,7 +410,7 @@ function placeCamera() {
     if (Math.abs(t - progress) + Math.abs(u - inProgress) > 0.002) { gaze.yaw *= 0.9; gaze.pitch *= 0.9; } // walking: eyes drift back ahead
     look.copy(turned(pos, look.clone().sub(pos)));
   }
-  const k0 = camReady ? 0.07 : 1; // fly smoothly between shots
+  const k0 = camReady ? director?.k ?? 0.07 : 1; // fly smoothly between shots (riding: ease into the seat, then stay with it)
   camPos.lerp(pos, k0); camLook.lerp(look, k0); camFov += (fov - camFov) * k0;
   camReady = true;
   camera.position.copy(camPos);
@@ -503,9 +503,9 @@ const onScene = (e) => e.target === renderer.domElement;
 addEventListener("pointermove", (e) => {
   if (game) { renderer.domElement.style.cursor = onScene(e) ? "pointer" : ""; tip.style.opacity = 0; return; } // mid-game: just the board
   if (latte) { renderer.domElement.style.cursor = onScene(e) ? "crosshair" : ""; tip.style.opacity = 0; return; } // the jug follows it
-  const o = onScene(e) ? hotspotAt(e.clientX, e.clientY) : null;
+  const o = onScene(e) && !ride ? hotspotAt(e.clientX, e.clientY) : null; // riding: nothing to tap out there
   // a hand that grabs the view wherever you can drag to look around; the pointing hand on things you can tap
-  renderer.domElement.style.cursor = gaze.drag && gaze.moved ? "grabbing" : o ? "pointer" : !director || seated ? "grab" : "";
+  renderer.domElement.style.cursor = gaze.drag && gaze.moved ? "grabbing" : o ? "pointer" : !director || seated || ride ? "grab" : "";
   tip.style.opacity = o ? 1 : 0;
   if (o) {
     const k = o.userData.hotspot;
@@ -532,6 +532,7 @@ function aboutBubble(actions, r) {
 }
 addEventListener("click", (e) => {
   if (gaze.moved) return; // that was a drag to look around
+  if (ride && onScene(e)) return; // riding: just the view
   if (game && onScene(e)) return game.uyes ? uyesClick(e) : boardClick(e);
   if (latte && onScene(e)) return; // pouring, not tapping things
   if (bubble?.dataset.idle && bubble.contains(e.target)) return closeBubble(); // tap what he said to put it away
@@ -544,6 +545,8 @@ addEventListener("click", (e) => {
   if (o.name === "HOT_wall_lamp") foundEgg("wall_lamp");
   if (key === "sip") return sip();
   if (key === "seat") return sitAt(o.userData.seat);
+  if (key === "honk" && o === lastHonk.o && performance.now() - lastHonk.t < 400) return hail(o); // a double tap: it stops for you
+  if (key === "honk") lastHonk = { o, t: performance.now() };
   if (key === "honk" || key === "bird") return life.poke(o);
   if (key === "chime") return sound.chime(); // ding-dong
   feedback(o, !["hello", "skills", "door", "clock", "lamp", "guestbook", "records"].includes(key)); // flat or hanging things: sound + buzz only
@@ -580,6 +583,8 @@ addEventListener("click", (e) => {
 // the object's on-screen box, so a bubble can sit next to it instead of on top of it
 const _box = new THREE.Box3(), _v = new THREE.Vector3();
 function screenRect(o) {
+  o.updateWorldMatrix(true, false); // this frame's, not last frame's: a bubble on something moving (a driver) would shake
+  camera.updateMatrixWorld();
   _box.setFromObject(o);
   const r = { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity, obj: o }; // obj: a bubble placed here follows it
   for (let i = 0; i < 8; i++) {
@@ -594,7 +599,7 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&
 // a card's words: title, text, table rows and link buttons (the bubbles and the project book share it)
 const cardHTML = (c) =>
   (c.title ? `<h2>${esc(c.title)}</h2>` : "") +
-  (c.body ? `<p>${esc(c.body)}</p>` : "") +
+  (c.body ? `<p>${c.who ? `<b>${esc(c.who)}:</b> ` : ""}${esc(c.body)}</p>` : "") + // who: the speaker's name, in bold
   (c.tabs?.length ? (c.tabs.length > 1 ? `<div class="tabs">${c.tabs.map((t, i) =>
     `<button class="tab" data-tab="${i}" aria-pressed="${i === 0}">${esc(t.label)}</button>`).join("")}</div>` : "") +
     `<div class="pane">${paneHTML(c.tabs[0])}</div>` : "") +
@@ -660,7 +665,7 @@ document.getElementById("hint").onclick = () => {
   scrollTo({ top: (atShop && doorOpen ? OUT + IN : OUT) * innerHeight,
     behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
 };
-document.getElementById("help").onclick = (e) => { e.stopPropagation(); startTour(true); };
+document.getElementById("help").onclick = (e) => { e.stopPropagation(); if (!ride) startTour(true); }; // not mid-ride
 
 // ---------------------------------------------------------------- click feedback: a soft pop, a tiny buzz on phones, a squash-bounce
 let fx = null;
@@ -1576,7 +1581,7 @@ const gaze = { yaw: 0, pitch: 0, drag: null, moved: false };
 const _up = new THREE.Vector3(0, 1, 0), _side = new THREE.Vector3();
 renderer.domElement.addEventListener("pointerdown", (e) => {
   gaze.moved = false;
-  if (!director || seated) gaze.drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY }; // not during tour shots or picking a seat
+  if (!director || seated || ride) gaze.drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY }; // not during tour shots or picking a seat
 });
 renderer.domElement.style.touchAction = "pan-y";
 addEventListener("pointermove", (e) => {
@@ -1593,7 +1598,7 @@ addEventListener("pointermove", (e) => {
   // how far you can turn: a glance on the street (the shop stays in view), all the way round inside or seated
   // (the plastic chair outside too)
   const street = !seated && inProgress < 0.001;
-  const [yaw, up, down] = street ? [0.52, 0.26, 0.26] : [Math.PI, 0.45, 0.5]; // street ±30°, up/down ±15°; else up 26°, down 29°
+  const [yaw, up, down] = ride ? [1.05, 0.26, 0.26] : street ? [0.52, 0.26, 0.26] : [Math.PI, 0.45, 0.5]; // riding ±60° (out the side windows); street ±30°, up/down ±15°; else up 26°, down 29°
   gaze.yaw += dx * 0.004;
   gaze.yaw = Math.atan2(Math.sin(gaze.yaw), Math.cos(gaze.yaw)); // keep it within one turn, so walking eases it back the short way
   gaze.yaw = THREE.MathUtils.clamp(gaze.yaw, -yaw, yaw);
@@ -1639,6 +1644,65 @@ function standUp() {
   director = null;
   lockScroll(false);
   document.getElementById("seatbar").hidden = true;
+}
+
+// ---------------------------------------------------------------- ride along: double-tap a passing car, it stops and you get
+// in the back; it goes round the street (life.js) and the driver chats, till you ask to get out at the shop
+let ride = null, lastHonk = {}; // ride: { d: the driver (content.js drivers), next: when they next say something }
+function hail(o) {
+  if (ride || director || latte || brewing) return life.poke(o); // something else has the camera (a seat, a game, the tour)
+  const got = life.hail(o, board);
+  if (!got) return life.poke(o); // too far along, or turning: just the horn
+  closeBubble();
+  sound.honk(1);
+  ride = { d: drivers[got.kind], head: got.head, next: Infinity };
+  lockScroll(true);
+}
+function board() { // it's stopped: in you get
+  gaze.yaw = gaze.pitch = 0;
+  renderer.domElement.style.touchAction = "none";
+  const s = life.seat();
+  director = { pos: s.pos, base: s.ahead, fov: 70, k: 0.05 };
+  showSeatBar(`${ride.d.icon} ${ride.d.name}`, "Drag to look around", "Get out", getOut);
+  rideSay(ride.d.hello);
+  setTimeout(() => life.go(), 1200); // off we go once you're sat down
+}
+function followRide(dt) {
+  if (!director?.base) return; // still pulling up
+  const s = life.seat();
+  director.pos = s.pos;
+  director.base = s.ahead;
+  director.k = Math.min(1, director.k + dt * 0.8); // ease in from the street, then sit still in the seat
+  if (performance.now() > ride.next && !bubble) rideSay(pickFresh(ride.d.lines.map((text) => ({ id: text, text }))).text);
+}
+function rideSay(text) {
+  closeBubble();
+  speak({ text }, ride.head);
+  ride.next = performance.now() + 7000 + Math.random() * 4000;
+}
+function getOut() {
+  document.getElementById("seat-leave").hidden = true;
+  document.getElementById("seat-hint").textContent = "Heading back to the shop…";
+  rideSay(ride.d.back);
+  ride.next = Infinity; // quiet till you're there
+  life.dropOff(close.x, () => {
+    rideSay(ride.d.bye);
+    ride.next = Infinity;
+    setTimeout(stepOut, 1800); // goodbye from your seat: out by the window the car's out of sight
+  });
+}
+function stepOut() {
+  closeBubble();
+  ride = null;
+  life.release(); // off it drives
+  progress = 1; inProgress = 0; // straight to the window, not back out through the shop if you got in from inside
+  renderer.domElement.style.touchAction = "pan-y";
+  gaze.yaw = gaze.pitch = 0;
+  director = null; // back to the window, where the walk up the street ends
+  lockScroll(false);
+  scrollTo({ top: OUT * innerHeight, behavior: "instant" });
+  document.getElementById("seatbar").hidden = true;
+  document.getElementById("seat-leave").hidden = false;
 }
 
 // ---------------------------------------------------------------- Thai checkers (หมากฮอส) against him, on the centre table
@@ -2760,6 +2824,7 @@ for (const ev of ["pointerdown", "pointermove", "wheel", "scroll", "keydown", "t
 function idleLine() {
   const now = performance.now();
   if (now - idleSince < 10000 || now < nextLineAt || document.hidden) return;
+  if (ride) return;
   if (bubble || game || latte || brewing || picking !== null || document.querySelector("dialog[open]") || !document.getElementById("tour").hidden) return;
   const fits = lines.filter((l) => holds(l.spot) && !(l.egg && eggs.has(l.egg)));
   const hints = fits.filter((l) => l.egg), plain = fits.filter((l) => !l.egg);
@@ -2771,13 +2836,14 @@ function idleLine() {
   if (walkAmt + danceAmt + sitAmt < 0.05 && l.pose) gesture(l.pose, l.target);
 }
 // what he says in a small bubble for 4 s: above him if he's in view, else from the bottom of the screen with his name
-function speak(l) {
+// at: someone else talking, over their head (the driver, when you ride)
+function speak(l, at = null) {
   nextLineAt = performance.now() + 20000 + Math.random() * 10000;
-  const r = screenRect(me);
+  const r = screenRect(at || me);
   const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2; // he's in shot if his middle is
-  const seen = cx > 0 && cx < innerWidth && cy > 0 && cy < innerHeight && me.getWorldPosition(_v).project(camera).z < 1;
-  showBubble({ title: "", body: seen ? l.text : `Bankza: ${l.text}` }, r, 4000);
-  babble(l.text, l.pose);
+  const seen = !!at || cx > 0 && cx < innerWidth && cy > 0 && cy < innerHeight && me.getWorldPosition(_v).project(camera).z < 1;
+  showBubble({ title: "", who: seen ? null : "Bankza", body: l.text }, r, 4000);
+  if (!at) babble(l.text, l.pose);
   if (!seen) { // out of shot: the top corner on his side, clear of the bars, and not following him
     bubble.anchor = null;
     const right = camera.worldToLocal(me.getWorldPosition(_v)).x > 0;
@@ -2805,13 +2871,14 @@ const frameClock = new THREE.Clock();
 let frameNo = 0;
 renderer.setAnimationLoop(() => {
   const dt = Math.min(frameClock.getDelta(), 0.1);
+  life.update(dt, performance.now() / 1000); // before the camera: riding, it's in the car where the car is now
+  if (ride) followRide(dt);
   placeCamera();
   animateCharacter(dt);
   animateLatte(dt);
   animateUyes(performance.now());
   animateProps(dt);
   animateNotes(dt);
-  life.update(dt, performance.now() / 1000);
   // indoors the street goes quiet: a little with the door open, a lot with it shut
   const indoors = camera.position.z < -0.1 && camera.position.x > -3.2 && camera.position.x < 5;
   sound.muffle(indoors ? 1 - 0.65 * doorAmt : 0);

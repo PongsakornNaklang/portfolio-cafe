@@ -53,6 +53,21 @@ export const drinks = [
     steps: [["grind", "Grinding the beans…"], ["shot", "Pulling a shot…"]] },
 ];
 
+// the drivers, when you ride along (double-tap a passing car): the cat drives the pink taxi, the dog the tuk-tuk.
+// hello when you get in, lines while you ride (one every 7 s or so), back when you ask to get out, bye at the shop
+export const drivers = {
+  cat: { name: "Taxi cat", icon: "🚕",
+    hello: "Hop in! I'll take you round the block.",
+    lines: ["Meter's off. This one's on the house.", "Mind the fur on the seat.", "That coffee shop back there? Best iced latte on the street.",
+      "I only brake for fish and fares.", "Purr… sorry, the engine and I hum together.", "Quiet street today. Just how I like it."],
+    back: "Back to NAKANG? Coming right up.", bye: "Here we are. Watch your step!" },
+  dog: { name: "Tuk-tuk dog", icon: "🛺",
+    hello: "Hold on tight! Tuk-tuks don't do slow.",
+    lines: ["Wind in your ears! Best part of the job.", "I'd wag, but I need both paws on the wheel.", "Smell that? Somebody's grilling moo ping.",
+      "Beep beep! That's tuk-tuk for hello.", "We'll pass the shop again in a sec. Wave to Bankza!", "Round and round. I never get tired of it."],
+    back: "To the shop? You got it!", bye: "NAKANG! Say hi to Bankza for me." },
+};
+
 export const cards = {
   about: {
     title: "Pongsakorn Naklang",

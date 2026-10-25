@@ -131,9 +131,12 @@ export function createStreetLife({ scene, camera, sound, night = false }) {
   const VEH = {
     // lamps: the headlamps painted on each model, in its own frame (x forward, y up), measured in Blender:
     // the tuk-tuk has one in the middle of its nose, the taxi two round ones either side of the grille
-    TPL_tuktuk: { speed: [3.2, 4.2], sound: "motorbike", rate: 1.7, vol: 0.55, horn: 1.35, driver: ["dog"], lamps: [[1.07, 0.975, 0]] },
-    TPL_car: { speed: [4.5, 6.5], sound: "car", rate: 1, vol: 0.5, horn: 1, driver: ["cat", "cat2"], lamps: [[1.9, 0.955, -0.69], [1.9, 0.955, 0.69]] },
+    // seat: where your eyes are when you ride in the back, head: the driver's, in the same frame
+    TPL_tuktuk: { speed: [3.2, 4.2], sound: "motorbike", rate: 1.7, vol: 0.55, horn: 1.35, driver: ["dog"], lamps: [[1.07, 0.975, 0]], seat: [-1.0, 1.4, -0.3], head: [0.3, 1.45, 0] },
+    TPL_car: { speed: [4.5, 6.5], sound: "car", rate: 1, vol: 0.5, horn: 1, driver: ["cat", "cat2"], lamps: [[1.9, 0.955, -0.69], [1.9, 0.955, 0.69]], seat: [-0.7, 1.65, -0.4], head: [0.25, 1.6, -0.06] },
   };
+  const LANE = { 1: 5.6, [-1]: 8.4 }; // z of each lane: near lane drives +x, far lane -x (Thai traffic keeps left)
+  const TURN = 14, R = 1.4; // with you in it, a car U-turns this far along the street (the road ends at ±20), round a half circle
   // headlights after dark: two glowing lamps on the front, and a beam on the road from a pool of spotlights made once
   // (adding a light per car would recompile every shader as cars come and go)
   const beams = [];
@@ -172,9 +175,11 @@ export function createStreetLife({ scene, camera, sound, night = false }) {
   function spawnVehicle() {
     const kind = pick(Object.keys(VEH).filter((k) => tpl[k]));
     if (!kind) return;
+    const dir = Math.random() < 0.5 ? 1 : -1;
+    const x0 = dir > 0 ? -26 : 26;
+    if (actors.some((b) => b.type === "vehicle" && b.dir === dir && Math.abs(b.o.position.x - x0) < 10)) return; // the lane's backed up
     const spec = VEH[kind], o = tpl[kind].clone(true);
-    const dir = Math.random() < 0.5 ? 1 : -1; // near lane drives +x, far lane -x (Thai traffic keeps left)
-    o.position.set(dir > 0 ? -26 : 26, 0, dir > 0 ? 5.6 : 8.4);
+    o.position.set(x0, 0, LANE[dir]);
     o.rotation.y = dir > 0 ? 0 : Math.PI;
     o.userData.hotspot = "honk"; // tap it: the horn, then the driver (dog barks, cat meows)
     scene.add(o);
@@ -182,7 +187,9 @@ export function createStreetLife({ scene, camera, sound, night = false }) {
     o.traverse((c) => { if (/^wheel_/.test(c.name)) wheels.push({ c, r: new THREE.Box3().setFromObject(c).getSize(new THREE.Vector3()).y / 2 }); });
     const loop = sound.play(spec.sound, { loop: true, volume: 0, rate: spec.rate * rand(0.92, 1.08) });
     const beam = night ? headlights(o, spec) : null;
-    actors.push({ type: "vehicle", o, dir, v: rand(...spec.speed), spec, loop, seed: rand(0, 9), wheels, beam });
+    const len = new THREE.Box3().setFromObject(tpl[kind]).getSize(new THREE.Vector3()).x / 2; // half its length, nose to tail
+    const v = rand(...spec.speed);
+    actors.push({ type: "vehicle", o, dir, v, cruise: v, len, spec, loop, seed: rand(0, 9), wheels, beam });
   }
 
   // ---------------------------------------------------------------- mynas: fly in, perch on a power line, fly off
@@ -220,12 +227,12 @@ export function createStreetLife({ scene, camera, sound, night = false }) {
       const a = actors[i], o = a.o;
       let done = false;
       if (a.type === "vehicle") {
-        o.position.x += a.dir * a.v * dt;
+        drive(a, dt);
         for (const w of a.wheels) w.c.rotation.z -= (a.v * dt) / w.r; // roll: the model drives along its own +X
         o.position.y = Math.abs(Math.sin(time * 9 + a.seed)) * 0.025; // a little road bounce (the Meshy models are one piece: no wheels to spin)
         if (a.loop) a.loop.gain.gain.value = a.spec.vol * near(o.position, camera);
-        o.visible = Math.abs(o.position.z - camera.position.z) > 2.2 || camera.position.z > 12; // never through the lens
-        done = Math.abs(o.position.x) > 27;
+        o.visible = a === ride?.a || Math.abs(o.position.z - camera.position.z) > 2.2 || camera.position.z > 12; // never through the lens
+        done = a !== ride?.a && Math.abs(o.position.x) > 27;
         if (a.beam) { // from the lamps, ahead and down onto the road
           a.beam.position.copy(a.beam.userData.at).applyMatrix4(o.matrixWorld);
           a.beam.target.position.set(a.beam.position.x + a.dir * 8, 0, a.beam.position.z);
@@ -260,6 +267,66 @@ export function createStreetLife({ scene, camera, sound, night = false }) {
       }
     }
   }
+  // speed: its own, but never closer than a safe gap to the one ahead in its lane (stopping short if need be);
+  // with you in it, it also stops to let you on, U-turns at each end of the street and stops at the shop to let you off
+  let ride = null; // { a, hold, onStop, dropX, onOut, out }
+  function drive(a, dt) {
+    const o = a.o, x = o.position.x, mine = a === ride?.a;
+    let want = mine && ride.hold ? 0 : a.cruise;
+    if (!a.turn) {
+      for (const b of actors) {
+        if (b === a || b.type !== "vehicle" || !(b.turn || b.dir === a.dir) || (b.o.position.x - x) * a.dir <= 0) continue;
+        const gap = Math.abs(b.o.position.x - x) - a.len - b.len;
+        want = Math.min(want, Math.max(0, (gap - 1.2) * 1.3)); // 1.2 m bumper to bumper when stopped
+      }
+      if (mine && ride.dropX != null && a.dir > 0 && x < ride.dropX + 0.05) // pulling up at the shop
+        want = Math.min(want, Math.sqrt(6 * Math.max(0, ride.dropX - x)));
+      else if (mine) {
+        const left = TURN - a.dir * x; // slow for the turn, and wait at it till the other lane's clear
+        want = Math.min(want, 2.5 + Math.max(0, left) * 0.8);
+        if (left <= 0) {
+          const clear = !actors.some((c) => c !== a && c.type === "vehicle" && c.dir === -a.dir && (c.o.position.x - x) * a.dir > -5 && (c.o.position.x - x) * a.dir < 14);
+          if (clear) a.turn = { x, from: a.dir, f: 0 };
+          else want = 0;
+        }
+      }
+    } else want = Math.min(want, 2.5);
+    a.v += THREE.MathUtils.clamp(want - a.v, -8 * dt, 3 * dt);
+    if (a.turn) {
+      const t = a.turn, d = t.from;
+      t.f = Math.min(Math.PI, t.f + (a.v * dt) / R);
+      o.position.x = t.x + d * R * Math.sin(t.f);
+      o.position.z = 7 - d * R * Math.cos(t.f);
+      o.rotation.y = d > 0 ? -t.f : Math.PI - t.f;
+      if (t.f >= Math.PI) { a.dir = -d; a.turn = null; o.position.z = LANE[a.dir]; }
+    } else o.position.x += a.dir * a.v * dt;
+    if (!mine || a.v > 0.02) return;
+    if (ride.hold && ride.onStop) { ride.onStop(); ride.onStop = null; } // stopped for you: hop in
+    if (ride.dropX != null && Math.abs(x - ride.dropX) < 0.1 && a.dir > 0 && !a.turn && ride.onOut) { // at the shop: out you get
+      ride.onOut();
+      ride.onOut = null;
+      ride.hold = ride.out = true; // waits till main.js steps you out (release)
+    }
+  }
+  // double-tapped: it pulls up for you. Returns who's driving ("cat" or "dog") and their head, or null if it can't stop now
+  function hail(o, onStop) {
+    const a = actors.find((a) => a.o === o);
+    if (!a || a.type !== "vehicle" || ride || a.turn || !o.visible || Math.abs(o.position.x) > 18) return null;
+    // an invisible box round the driver's head, for their speech bubble to sit on
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, 0.35));
+    head.visible = false;
+    head.position.set(...a.spec.head);
+    o.add(head);
+    ride = { a, hold: true, onStop };
+    return { kind: a.spec.driver[0] === "dog" ? "dog" : "cat", head };
+  }
+  function seat() { // where you sit, and which way is ahead (from this frame's position, not last frame's matrix)
+    const o = ride.a.o;
+    return { pos: new THREE.Vector3(...ride.a.spec.seat).applyEuler(o.rotation).add(o.position), ahead: new THREE.Vector3(1, -0.1, 0).applyEuler(o.rotation) };
+  }
+  function go() { if (ride && !ride.out) ride.hold = false; } // (not if you've already been dropped off)
+  function release() { ride = null; }
+  function dropOff(x, onOut) { Object.assign(ride, { dropX: x, onOut }); }
   function flyOff(a) {
     a.state = "out"; a.t = 0;
     a.to = a.perch.clone().add(new THREE.Vector3(rand(-12, 12), rand(5, 8), rand(-4, 8)));
@@ -276,5 +343,5 @@ export function createStreetLife({ scene, camera, sound, night = false }) {
       for (const b of actors) if (b.type === "bird" && b.state === "perch" && b.o.position.distanceTo(o.position) < 4) flyOff(b);
     }
   }
-  return { update, poke };
+  return { update, poke, hail, seat, go, dropOff, release };
 }
