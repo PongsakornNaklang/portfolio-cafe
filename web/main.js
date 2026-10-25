@@ -1170,15 +1170,30 @@ function aimBone(name, childName, dir, w) { // turn a bone so its child lies alo
 // ---------------------------------------------------------------- order a drink, pick a seat, sit and look around
 const drinkTpl = Object.fromEntries(drinks.map((d) => [d.id, scene.getObjectByName(`TPL_drink_${d.id}`)]));
 for (const t of Object.values(drinkTpl)) t?.parent?.remove(t);
+// the cart's top is full (its glass case, the pot, the umbrella pole), so the plastic chair outside has a red plastic
+// stool beside it for your drink, street-stall style; you face the cart, turned a little toward your drink
+const STOOL = (() => {
+  const chair = new THREE.Box3().setFromObject(scene.getObjectByName("monobloc")), cart = new THREE.Box3().setFromObject(scene.getObjectByName("cart_body"));
+  const p = chair.getCenter(new THREE.Vector3()), c = cart.getCenter(new THREE.Vector3());
+  const dir = new THREE.Vector3(c.x - p.x, 0, c.z - p.z).normalize(), side = new THREE.Vector3(-dir.z, 0, dir.x);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.42, 32), new THREE.MeshStandardMaterial({ color: 0xd42a1e, roughness: 0.45 }));
+  m.name = "red_stool";
+  m.position.copy(p).addScaledVector(dir, 0.7).addScaledVector(side, 0.4).setY(chair.min.y + 0.21);
+  m.castShadow = m.receiveShadow = true;
+  scene.add(m);
+  const look = dir.clone().multiplyScalar(Math.cos(0.45)).addScaledVector(side, Math.sin(0.45)); // 25° toward the stool
+  return { face: [p.x + look.x * 2, p.z + look.z * 2] };
+})();
 // every seat in the shop (and the plastic chair outside), with the table its drink goes on
 const SEATS = [
-  { seat: "mcm_chair_0", table: "mcm_table", face: [3.0, 0.5] }, // facing its table is nose to the wall: face the door
+  { seat: "mcm_chair_0", table: "mcm_table", face: [3.0, 0.5], round: true }, // facing its table is nose to the wall: face the door
   ...[0, 1, 2, 3].map((i) => ({ seat: `stool_steel_${i}`, table: "center_table" })),
   ...[-0.5, 0.5].map((dx) => ({ seat: "window_bench", table: "window_table", dx })),
-  { seat: "monobloc", table: "cart_body" },
+  // on: where the drink goes, if not the table; down: how high you look, 1.6 m ahead (0.5 m), lower to see a low stool
+  { seat: "monobloc", table: "cart_body", on: "red_stool", face: STOOL.face, round: true, down: 0.15 },
 ].map((s) => {
   const sb = new THREE.Box3().setFromObject(scene.getObjectByName(s.seat));
-  const tb = new THREE.Box3().setFromObject(scene.getObjectByName(s.table));
+  const tb = new THREE.Box3().setFromObject(scene.getObjectByName(s.on || s.table));
   const p = sb.getCenter(new THREE.Vector3()); p.x += s.dx || 0;
   const floor = sb.min.y;
   const tc = tb.getCenter(new THREE.Vector3());
@@ -1187,8 +1202,31 @@ const SEATS = [
   // the drink: on the table where it's nearest the spot just in front of you, a little in from the rim
   const front = p.clone().addScaledVector(dir, 0.4);
   const spot = new THREE.Vector3(THREE.MathUtils.clamp(front.x, tb.min.x, tb.max.x), tb.max.y, THREE.MathUtils.clamp(front.z, tb.min.z, tb.max.z));
+  if (s.round) { // a round top: its box's corners are off the table, so keep within the circle instead
+    const r = Math.min(tb.max.x - tb.min.x, tb.max.z - tb.min.z) / 2;
+    const off = new THREE.Vector3(front.x - tc.x, 0, front.z - tc.z);
+    spot.set(tc.x, tb.max.y, tc.z).add(off.clampLength(0, r));
+  }
   spot.add(new THREE.Vector3(tc.x - spot.x, 0, tc.z - spot.z).setLength(0.15));
-  return { p, floor, spot, dir, table: s.table };
+  // with room around it: near your spot (within 30 cm), the place with the most space between the saucer and what
+  // stands on the table (the book, the record player, a plant...), up to 8 cm, and on the table by at least 2 cm
+  const tbl = scene.getObjectByName(s.on || s.table), things = [];
+  scene.traverseVisible((o) => {
+    if (!o.isMesh || o === tbl || tbl.getObjectById(o.id)) return;
+    const b = new THREE.Box3().setFromObject(o);
+    if (b.min.y > tb.max.y - 0.12 && b.min.y < tb.max.y + 0.05 && b.max.x > tb.min.x && b.min.x < tb.max.x && b.max.z > tb.min.z && b.min.z < tb.max.z) things.push(b);
+  });
+  const SAUCER = 0.085, R0 = (tb.max.x - tb.min.x) / 2;
+  const edgeGap = (x, z) => (s.round ? R0 - Math.hypot(x - tc.x, z - tc.z) : Math.min(x - tb.min.x, tb.max.x - x, z - tb.min.z, tb.max.z - z)) - SAUCER;
+  const room = (x, z) => Math.min(0.08, ...things.map((b) => Math.hypot(Math.max(b.min.x - x, x - b.max.x, 0), Math.max(b.min.z - z, z - b.max.z, 0)) - SAUCER));
+  let best = [spot.x, spot.z], bestRoom = -Infinity, bestD = Infinity;
+  for (let x = spot.x - 0.3; x <= spot.x + 0.3; x += 0.01) for (let z = spot.z - 0.3; z <= spot.z + 0.3; z += 0.01) { // ponytail: brute force at load, 8 seats
+    const d = Math.hypot(x - spot.x, z - spot.z), r = room(x, z);
+    if (d > 0.3 || edgeGap(x, z) < 0.02) continue;
+    if (r > bestRoom + 1e-6 || (Math.abs(r - bestRoom) < 1e-6 && d < bestD)) { best = [x, z]; bestRoom = r; bestD = d; }
+  }
+  spot.x = best[0]; spot.z = best[1];
+  return { p, floor, spot, dir, table: s.table, down: s.down ?? 0.5 };
 });
 const pinTex = (() => {
   const cv = document.createElement("canvas"); cv.width = cv.height = 128;
@@ -1258,7 +1296,7 @@ function sitAt(i) {
   seated = true;
   // eyes above the seat, a little back from the table, looking over your drink and on into the room
   const pos = new THREE.Vector3(s.p.x, s.floor + 1.2, s.p.z).addScaledVector(s.dir, -0.12);
-  const ahead = pos.clone().addScaledVector(s.dir, 1.6).setY(s.floor + 0.5); // tipped down enough to see your drink
+  const ahead = pos.clone().addScaledVector(s.dir, 1.6).setY(s.floor + s.down); // tipped down enough to see your drink
   gaze.yaw = gaze.pitch = 0;
   renderer.domElement.style.touchAction = "none"; // a finger drag turns your head instead of scrolling
   director = { pos, look: ahead, base: ahead.clone().sub(pos), fov: 66 };
