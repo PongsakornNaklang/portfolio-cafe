@@ -4,7 +4,8 @@ import { neon } from "@neondatabase/serverless";
 import { drinks } from "../content.js";
 
 const NAMES = new Set(["cat", ...drinks.map((d) => `drink:${d.id}`),
-  ...["easy", "hard"].flatMap((l) => ["win", "lose", "draw"].map((r) => `checkers:${l}:${r}`))]);
+  ...["easy", "hard"].flatMap((l) => ["win", "lose", "draw"].map((r) => `checkers:${l}:${r}`)),
+  ...["easy", "hard"].flatMap((l) => ["win", "lose"].map((r) => `uyes:${l}:${r}`))]);
 
 export async function GET() {
   const rows = await neon(process.env.DATABASE_URL)`select name, n from counters`;

@@ -5,11 +5,11 @@
 --           street, street_far, window (on the street, near the shop), door_shut, doorway, inside (standing in the
 --           shop), seated, indoors (inside or seated in the shop), seat:center_table, seat:window_table,
 --           seat:mcm_table, seat:cart_body (the plastic chair outside), center_free (not at the middle table),
---           drink_half, drink_empty, poured (you've tried latte art), music_on, music_off, dancing, day, sunset, night, won_easy (you beat him on
+--           drink_half, drink_empty, poured (you've tried latte art), dealt (you've found the UYES box), music_on, music_off, dancing, day, sunset, night, won_easy (you beat him on
 --           Easy), anywhere; greet is his hello as he waves when you reach the window (said then, not when idle;
 --           greet+door_shut etc. are used instead whenever they hold)
 --   egg     a hint: once you've found this easter egg he stops hinting at it. One of: dance, checkers,
---           checkers_hard, cat, records, honk, bird, chime, wall_lamp, drag, guestbook, night, latte
+--           checkers_hard, cat, records, honk, bird, chime, wall_lamp, drag, guestbook, night, latte, uyes
 --   pose    what he does as he says it: wave, nod, shrug, look, point (look and point need a target)
 --   target  the scene object he looks or points at (HOT_cat, vinyl_shelf, HOT_record, HOT_board, ...)
 create table if not exists lines (
@@ -80,5 +80,10 @@ insert into lines (id, spot, text, egg, pose, target) values
   ('latte_again',    'indoors+poured',         'Fancy another go at latte art? It’s on the menu now.', null, 'nod', null),
   ('latte_tulip',    'indoors+poured',         'Nailed the heart? Try a tulip next.', null, 'shrug', null),
   ('latte_refill',   'drink_empty+poured',     'Pour the next one yourself? Latte art’s on the menu.', null, 'nod', null),
+  ('hint_uyes',      'indoors',                'Someone left a deck of UYES on the bookshelf. Fancy a hand?', 'uyes', 'point', 'HOT_uyes'),
+  ('hint_uyes2',     'seat:center_table',      'This table’s big enough for cards. Grab the UYES box off the shelf.', 'uyes', 'look', 'HOT_uyes'),
+  ('hint_uyes3',     'drink_half',             'Bored? There’s a card game on the bookshelf. I never lose. Mostly.', 'uyes', 'shrug', null),
+  ('uyes_again',     'indoors+dealt',          'Rematch at UYES? The box is still on the shelf.', null, 'point', 'HOT_uyes'),
+  ('uyes_call',      'indoors+dealt',          'Down to one card, remember to shout UYES. I won’t remind you.', null, 'shrug', null),
   ('hint_night',     'day',                    'Come back after dark. The street lights up.',              'night', 'nod', null)
 on conflict (id) do nothing;

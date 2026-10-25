@@ -5,6 +5,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { cards, site, drinks } from "./content.js?v=30";
 import { createSound, createStreetLife } from "./life.js?v=25";
 import { startBoard, legalMoves, play, botMove } from "./checkers.js?v=1";
+import { COLORS, newDeck, shuffle, canPlay, goesAgain, penalty, botPick, botColor } from "./uyes.js?v=1";
 import { surface as latteSurface, draw as drawLatte, reset as resetLatte, pourStep, jugLeft, toGrid, quip, score as latteScore } from "./latte.js?v=6";
 
 // ---------------------------------------------------------------- time of day (visitor's clock; ?time=night to test)
@@ -443,7 +444,7 @@ const ndc = new THREE.Vector2();
 const tip = document.getElementById("tip");
 const LABEL = { about: "About me", skills: "Menu", hello: "Say hi", music: "Music on / off", guestbook: "Write on the board",
   contact: "Contact", clock: "What time is it?", lamp: "Light on / off", records: "Pick a record",
-  honk: "Beep beep!", bird: "Shoo!", book: "Open my portfolio", cat: "Pet the cat", chime: "7-Eleven", tip: "Tip me a coffee" };
+  honk: "Beep beep!", bird: "Shoo!", book: "Open my portfolio", cat: "Pet the cat", chime: "7-Eleven", tip: "Tip me a coffee", uyes: "Play UYES" };
 
 function hotspotAt(x, y) {
   ndc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
@@ -493,7 +494,7 @@ function aboutBubble(actions, r) {
 }
 addEventListener("click", (e) => {
   if (gaze.moved) return; // that was a drag to look around
-  if (game && onScene(e)) return boardClick(e);
+  if (game && onScene(e)) return game.uyes ? uyesClick(e) : boardClick(e);
   if (latte && onScene(e)) return; // pouring, not tapping things
   if (bubble?.dataset.idle && bubble.contains(e.target)) return closeBubble(); // tap what he said to put it away
   if (bubble?.contains(e.target) || e.target.closest?.("#tour, #help, #board, #book, #kofi, #mute, #seatbar")) return;
@@ -501,7 +502,7 @@ addEventListener("click", (e) => {
   const o = onScene(e) ? hotspotAt(e.clientX, e.clientY) : null;
   if (!o) return;
   const key = o.userData.hotspot;
-  if (["cat", "records", "honk", "bird", "chime", "guestbook"].includes(key)) foundEgg(key); // he stops hinting at it
+  if (["cat", "records", "honk", "bird", "chime", "guestbook", "uyes"].includes(key)) foundEgg(key); // he stops hinting at it
   if (o.name === "HOT_wall_lamp") foundEgg("wall_lamp");
   if (key === "sip") return sip();
   if (key === "seat") return sitAt(o.userData.seat);
@@ -512,6 +513,7 @@ addEventListener("click", (e) => {
   const r = screenRect(o);
   if (key === "music") return toggleMusic(r);
   if (key === "records") return recordMenu(r);
+  if (key === "uyes") return uyesMenu(r);
   if (key === "door") return toggleDoor();
   if (key === "cat") return petCat(r);
   if (key === "lamp") return toggleLamp(o);
@@ -1401,7 +1403,7 @@ function shelveBoard() { // on the fridge, set up for the next game, at a casual
 }
 shelveBoard();
 
-let game = null; // { b, level, sel, moves, busy, quiet }
+let game = null; // checkers: { b, level, sel, moves, busy, quiet }; UYES: { uyes: true, ... } (see startUyes)
 const SAY = { mine: ["Gotcha!", "Mine now.", "Oops, for you."], yours: ["Nice one!", "Hey!", "Ouch."], think: ["Hmm…", "Let me see…", "Thinking…"] };
 const say = (k) => SAY[k][Math.floor(Math.random() * SAY[k].length)];
 function checkersMenu(r) {
@@ -1611,14 +1613,14 @@ function babble(text, pose) {
   } catch {}
 }
 // you win: paper confetti bursts up off the board and flutters down onto the table
-function confetti() {
+function confetti(parent = CK.board, floor = 0.018) { // floor: the height it lands at, on parent
   const cols = [0xffe100, 0xff8418, 0xffffff, 0x2f6fd8, 0xff6fa8], geo = new THREE.PlaneGeometry(0.012, 0.018);
   const bits = Array.from({ length: 90 }, () => {
     const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: cols[Math.floor(Math.random() * cols.length)], side: THREE.DoubleSide }));
     m.position.set((Math.random() - 0.5) * 0.2, 0.03, (Math.random() - 0.5) * 0.2);
     m.userData = { v: new THREE.Vector3((Math.random() - 0.5) * 0.8, 1.1 + Math.random() * 0.9, (Math.random() - 0.5) * 0.8),
       spin: new THREE.Vector3(Math.random() * 12, Math.random() * 12, Math.random() * 12) };
-    CK.board.add(m);
+    parent.add(m);
     return m;
   });
   let last = performance.now();
@@ -1629,11 +1631,11 @@ function confetti() {
       const { v, spin } = m.userData;
       v.y -= 3.2 * dt; v.multiplyScalar(1 - 1.8 * dt); // gravity, and air drag so it flutters
       m.position.addScaledVector(v, dt);
-      if (m.position.y < 0.018) { m.position.y = 0.018; v.set(0, 0, 0); spin.set(0, 0, 0); m.rotation.x = -Math.PI / 2; } // landed flat
+      if (m.position.y < floor) { m.position.y = floor; v.set(0, 0, 0); spin.set(0, 0, 0); m.rotation.x = -Math.PI / 2; } // landed flat
       m.rotation.x += spin.x * dt; m.rotation.y += spin.y * dt; m.rotation.z += spin.z * dt;
     }
     if (now - t0 < 4000 && game === g) return requestAnimationFrame(fall); // gone with the game (Quit or Play again)
-    for (const m of bits) { CK.board.remove(m); m.material.dispose(); }
+    for (const m of bits) { parent.remove(m); m.material.dispose(); }
   })(t0);
 }
 // he wins: his caps hop for joy one after another, twice over
@@ -1744,6 +1746,286 @@ function startTour(force = false) {
   lockScroll(true);
   show();
   next.focus();
+}
+
+// ---------------------------------------------------------------- UYES against him, on the centre table
+// An easter egg: a UYES box stands on the bookshelf. Tap it, pick Easy or Hard, and he comes over to the centre table:
+// the deck and the discard pile in the middle (a ring round the pile shows the colour to match), his cards face down
+// on his side, yours in your hand at the bottom of the screen. Rules and his play: uyes.js.
+const UY_COL = { red: "#d72600", yellow: "#ecd407", green: "#379711", blue: "#0956bf" };
+const UY_SIGN = { skip: "⊘", reverse: "⇄", "+2": "+2", "+4": "+4", wild: "" };
+const uyArt = new Map(), uyTexs = new Map(), uyUrls = new Map();
+function uyCanvas(card) { // a card's face (the back for null), 128 x 192
+  const key = card ? `${card.c}:${card.v}` : "back";
+  if (uyArt.has(key)) return uyArt.get(key);
+  const cv = Object.assign(document.createElement("canvas"), { width: 128, height: 192 }), x = cv.getContext("2d");
+  const panel = (pad, r, fill) => { x.beginPath(); x.roundRect(pad, pad, 128 - 2 * pad, 192 - 2 * pad, r); x.fillStyle = fill; x.fill(); };
+  panel(0, 14, "#fff");
+  panel(7, 9, card?.c ? UY_COL[card.c] : "#161616");
+  const text = (t, px, fill) => {
+    x.font = `italic 900 ${px}px "Archivo", sans-serif`; x.textAlign = "center"; x.textBaseline = "middle";
+    x.lineWidth = px / 6; x.strokeStyle = "#161616"; x.strokeText(t, 0, 2); x.fillStyle = fill; x.fillText(t, 0, 2);
+  };
+  x.save(); x.translate(64, 96); x.rotate(-0.5); // the tilted oval
+  if (card && !card.c) ["red", "blue", "yellow", "green"].forEach((c, i) => { // a Wild's four colours
+    x.beginPath(); x.moveTo(0, 0); x.ellipse(0, 0, 40, 66, 0, (i * Math.PI) / 2, ((i + 1) * Math.PI) / 2); x.fillStyle = UY_COL[c]; x.fill();
+  });
+  else { x.beginPath(); x.ellipse(0, 0, 40, 66, 0, 0, Math.PI * 2); x.fillStyle = card ? "#fff" : UY_COL.red; x.fill(); }
+  const label = card ? (typeof card.v === "number" ? String(card.v) : UY_SIGN[card.v]) : "";
+  if (!card) text("UYES", 34, UY_COL.yellow);
+  else if (label) { x.rotate(0.5); text(label, label.length > 1 ? 50 : 66, card.c ? UY_COL[card.c] : "#fff"); }
+  x.restore();
+  if (label) { x.font = 'italic 900 20px "Archivo", sans-serif'; x.textAlign = "left"; x.textBaseline = "middle"; x.fillStyle = "#fff"; x.fillText(label, 15, 26); }
+  uyArt.set(key, cv);
+  return cv;
+}
+function uyTex(card) {
+  const key = card ? `${card.c}:${card.v}` : "back";
+  if (!uyTexs.has(key)) { const t = new THREE.CanvasTexture(uyCanvas(card)); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; uyTexs.set(key, t); }
+  return uyTexs.get(key);
+}
+const uyUrl = (card) => { const key = `${card.c}:${card.v}`; if (!uyUrls.has(key)) uyUrls.set(key, uyCanvas(card).toDataURL()); return uyUrls.get(key); };
+const uyName = (card) => (card.c ? `${card.c} ${card.v}` : card.v === "+4" ? "wild +4" : "wild");
+// the box on the bookshelf, standing on the stack of books on the middle shelf
+const UYBOX = (() => {
+  const bb = new THREE.Box3().setFromObject(scene.getObjectByName("bookshelf_stack_2_2"));
+  const cv = Object.assign(document.createElement("canvas"), { width: 128, height: 192 }), x = cv.getContext("2d");
+  x.fillStyle = UY_COL.red; x.fillRect(0, 0, 128, 192);
+  x.drawImage(uyCanvas(null), 14, 21, 100, 150); // the front shows a card back
+  const front = new THREE.CanvasTexture(cv); front.colorSpace = THREE.SRGBColorSpace;
+  const red = new THREE.MeshStandardMaterial({ color: UY_COL.red, roughness: 0.5 });
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.17, 0.04), [red, red, red, red, new THREE.MeshStandardMaterial({ map: front, roughness: 0.5 }), red]);
+  box.position.set((bb.min.x + bb.max.x) / 2, bb.max.y + 0.085, (bb.min.z + bb.max.z) / 2);
+  box.rotation.y = -0.2; // a casual angle
+  box.name = "HOT_uyes";
+  box.userData.hotspot = "uyes";
+  box.castShadow = true;
+  scene.add(box);
+  return box;
+})();
+// the cards on the table
+const UY = (() => {
+  const g = new THREE.Group();
+  g.position.copy(CK.centre);
+  g.visible = false;
+  scene.add(g);
+  const W = 0.07, H = 0.105, geo = new THREE.PlaneGeometry(W, H).rotateX(-Math.PI / 2); // lying flat, its top away from you
+  const edge = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.6 });
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(W, 1, H), [edge, edge, new THREE.MeshStandardMaterial({ map: uyTex(null), roughness: 0.5 }), edge, edge, edge]);
+  deck.position.x = -0.07;
+  const under = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ roughness: 0.5 })), top = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ roughness: 0.5 }));
+  under.position.set(0.065, 0.002, 0); under.rotation.y = 0.25;
+  top.position.set(0.06, 0.003, 0); top.rotation.y = -0.08;
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.072, 0.08, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  ring.position.set(0.06, 0.001, 0);
+  const fan = new THREE.Group(); // his cards, face down on his side
+  fan.position.z = -0.17;
+  g.add(deck, under, top, ring, fan);
+  for (const o of [deck, under, top]) o.castShadow = true;
+  return { g, geo, deck, under, top, ring, fan, backMat: new THREE.MeshStandardMaterial({ map: uyTex(null), roughness: 0.5 }) };
+})();
+const uyHand = document.getElementById("uyes-hand");
+const uySleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const SAYU = { hit: ["Draw up! 😏", "Sorry, not sorry.", "Take that."], ouch: ["Hey!", "Ugh, really?", "Rude."],
+  again: ["My go again.", "Skip! 😄"], pass: ["Pass.", "Nothing. Pass."] };
+const sayU = (k) => SAYU[k][Math.floor(Math.random() * SAYU[k].length)];
+function uyesMenu(r) {
+  showBubble({ title: "UYES", body: "A round of UYES with me? Match the colour or the number, and say UYES! when you're down to one card.",
+    ...(counts && { rows: ["easy", "hard"].map((l) => [l === "easy" ? "Easy, so far" : "Hard, so far", uyScore(l)]) }), actions: [
+    { label: "😌 Easy", run: () => startUyes("easy") }, { label: "🔥 Hard", egg: true, run: () => startUyes("hard") }] }, r);
+}
+const uyScore = (level) => `You ${counts[`uyes:${level}:win`] || 0} · Bankza ${counts[`uyes:${level}:lose`] || 0}`;
+// from your stool: close = the cards fill the view, above your hand; wide = him across the table too
+function uyShot(close) { // closer on a phone held upright
+  const c = CK.centre, k = Math.max(0.65, Math.min(1, camera.aspect));
+  return close ? { pos: new THREE.Vector3(c.x, c.y + 0.55 * k, c.z + 0.4 * k), look: new THREE.Vector3(c.x, c.y, c.z - 0.1 * k), fov: 50 } : boardShot(false);
+}
+function startUyes(level) {
+  closeBubble();
+  const seat = game ? game.seat : seated ? mySeat : null; // where you sat: quitting takes you back there
+  clearTimeout(game?.callTimer);
+  dancing = false; // he comes over to play instead
+  const G = game = { uyes: true, level, seat, deck: newDeck(), pile: [], hands: [[], []], color: null, turn: 0, busy: true,
+    drawn: null, picking: null, mustCall: false, callTimer: 0, hint: "", over: false };
+  uyDraw(0, 7);
+  uyDraw(1, 7);
+  const k = G.deck.findIndex((c) => typeof c.v === "number"); // it starts on a number
+  G.pile.push(G.deck.splice(k, 1)[0]);
+  G.color = G.pile[0].c;
+  UY.g.visible = true;
+  uyTable();
+  lockScroll(true);
+  seated = false;
+  director = uyShot(false); // a wide shot while he walks over, then down to the cards once he's there
+  (function settle() { if (game !== G) return; if (walkS > routeLen - 0.01) director = uyShot(true); else setTimeout(settle, 200); })();
+  uyHand.hidden = false;
+  uyTurn(0);
+}
+function quitUyes() {
+  const seat = game.seat;
+  clearTimeout(game.callTimer);
+  game = null;
+  UY.g.visible = false;
+  uyHand.hidden = true;
+  uyHand.innerHTML = "";
+  if (seat === null || !myDrink) return standUp();
+  picking = myDrink.userData.drink; // back on your stool, drink and all
+  sitAt(seat);
+}
+function uyDraw(p, n) { // p: 0 you, 1 him; an empty deck is the pile reshuffled, all but its top card
+  const G = game;
+  for (let k = 0; k < n; k++) {
+    if (!G.deck.length) { const top = G.pile.pop(); G.deck = shuffle(G.pile); G.pile = [top]; }
+    if (!G.deck.length) break;
+    G.hands[p].push(G.deck.pop());
+  }
+  if (G.pile.length) uyTable();
+}
+function uyTable() { // the deck's height, the pile's top two cards, the colour ring, his cards
+  const G = game;
+  UY.deck.scale.y = 0.002 + G.deck.length * 0.0003;
+  UY.deck.position.y = UY.deck.scale.y / 2;
+  UY.top.material.map = uyTex(G.pile.at(-1)); UY.top.material.needsUpdate = true;
+  UY.under.visible = G.pile.length > 1;
+  if (G.pile.length > 1) { UY.under.material.map = uyTex(G.pile.at(-2)); UY.under.material.needsUpdate = true; }
+  UY.ring.material.color.set(UY_COL[G.color]);
+  const n = G.hands[1].length, gap = Math.min(0.025, 0.3 / n);
+  while (UY.fan.children.length > n) UY.fan.remove(UY.fan.children.at(-1));
+  while (UY.fan.children.length < n) UY.fan.add(new THREE.Mesh(UY.geo, UY.backMat));
+  UY.fan.children.forEach((m, k) => { m.position.set((k - (n - 1) / 2) * gap, 0.001 + k * 0.0003, Math.abs(k - (n - 1) / 2) * gap * 0.15); m.rotation.y = (k - (n - 1) / 2) * -0.06; });
+}
+function uyFly(card, p) { // a card flies onto the pile, from his side or from yours
+  const m = new THREE.Mesh(UY.geo, new THREE.MeshStandardMaterial({ map: uyTex(card), roughness: 0.5 }));
+  const a = new THREE.Vector3(0, 0.05, p ? -0.17 : 0.3), b = UY.top.position.clone().setY(0.006), t0 = performance.now(), G = game;
+  UY.g.add(m);
+  return new Promise((done) => (function step(now) {
+    const k = Math.min(1, (now - t0) / 380), e = 1 - (1 - k) ** 3;
+    m.position.lerpVectors(a, b, e).y += Math.sin(Math.PI * k) * 0.06;
+    m.rotation.y = (1 - e) * (p ? 1.2 : -0.8) - 0.08 * e;
+    if (k < 1 && game === G) return requestAnimationFrame(step);
+    UY.g.remove(m); m.material.dispose(); done();
+  })(t0));
+}
+function uyHis(text) { // a line from him in the bar for a couple of seconds, with his voice
+  const G = game;
+  G.hint = `Bankza: ${text}`;
+  babble(text);
+  uyBar();
+  setTimeout(() => { if (game === G && !G.over && G.hint === `Bankza: ${text}`) { G.hint = ""; uyBar(); } }, 2200);
+}
+async function uyPlay(p, i, color) {
+  const G = game;
+  G.busy = true; G.picking = null; G.drawn = null;
+  const card = G.hands[p].splice(i, 1)[0];
+  uyRender(); uyTable();
+  await uyFly(card, p);
+  if (game !== G) return; // quit mid-throw
+  G.pile.push(card);
+  G.color = card.c ?? color;
+  uyTable();
+  feedback(UY.top, false); // a slap as it lands
+  if (!G.hands[p].length) return uyEnd(p ? "lose" : "win");
+  const pen = penalty(card);
+  if (pen) uyDraw(1 - p, pen);
+  if (p === 0 && G.hands[0].length === 1) uyArm();
+  if (p === 1) { const line = G.hands[1].length === 1 ? "UYES!" : pen ? sayU("hit") : goesAgain(card) ? sayU("again") : null; if (line) uyHis(line); }
+  else if (pen || goesAgain(card)) { uyHis(sayU("ouch")); gesture("shrug"); }
+  uyTurn(goesAgain(card) ? p : 1 - p);
+}
+function uyTurn(p) {
+  const G = game;
+  G.turn = p;
+  G.busy = p === 1;
+  uyBar(); uyRender();
+  if (p === 1) setTimeout(() => game === G && uyBot(), 1000);
+}
+async function uyBot() {
+  const G = game, h = G.hands[1];
+  let i = botPick(h, G.pile.at(-1), G.color, G.level, G.hands[0].length);
+  if (i < 0) { // nothing fits: he draws, and plays it if it does
+    uyDraw(1, 1);
+    await uySleep(600);
+    if (game !== G) return;
+    if (!canPlay(h.at(-1), G.pile.at(-1), G.color)) { uyHis(sayU("pass")); return uyTurn(0); }
+    i = h.length - 1;
+  }
+  uyPlay(1, i, h[i].c ? null : botColor(h.filter((_, k) => k !== i)));
+}
+function uyDrawMine() { // tap the deck: take one; if it fits you can play it, or pass
+  const G = game;
+  if (!G || G.turn !== 0 || G.busy || G.drawn !== null || G.picking !== null) return;
+  uyDraw(0, 1);
+  feedback(UY.deck, false);
+  const h = G.hands[0];
+  if (canPlay(h.at(-1), G.pile.at(-1), G.color)) { G.drawn = h.length - 1; uyBar(); uyRender(); return; }
+  G.busy = true; uyRender();
+  setTimeout(() => game === G && uyTurn(1), 500);
+}
+function uyArm() { // down to one card: say UYES! within 2.5 s, or he catches you and you draw two
+  const G = game;
+  G.mustCall = true;
+  clearTimeout(G.callTimer);
+  G.callTimer = setTimeout(() => {
+    if (game !== G || !G.mustCall || G.over) return;
+    G.mustCall = false;
+    uyDraw(0, 2);
+    uyHis("You didn't say UYES! Draw two. 😏");
+    uyRender();
+  }, 2500);
+}
+function uyesClick(e) { // on the table: the deck
+  ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  if (ray.intersectObject(UY.deck).length) uyDrawMine();
+}
+function uyBar() {
+  const G = game, mine = G.turn === 0 && !G.over;
+  const status = G.over ? "" : mine ? (G.picking !== null ? "Pick a colour" : G.drawn !== null ? "Play it or pass" : "Your go: play a card, or tap the deck to draw")
+    : `Bankza's go · ${G.hands[1].length} cards`;
+  const hint = G.hint || status, title = `🃏 UYES · ${G.level === "easy" ? "Easy" : "Hard"}`;
+  showSeatBar(matchMedia("(max-width: 960px)").matches ? hint : title, hint, G.over ? "Done" : "Quit", quitUyes, G.over ? () => startUyes(G.level) : null);
+  document.getElementById("seat-move").textContent = "Play again";
+  const extra = document.getElementById("seat-extra");
+  const act = G.over ? null : G.mustCall ? ["📣 UYES!", () => { G.mustCall = false; clearTimeout(G.callTimer); tune([784, 1047], 0.09, "triangle"); G.hint = "UYES!"; uyBar(); setTimeout(() => { if (game === G && G.hint === "UYES!") { G.hint = ""; uyBar(); } }, 1500); }]
+    : mine && !G.busy && G.drawn !== null ? ["Pass", () => { G.drawn = null; uyTurn(1); }]
+    : mine && !G.busy && G.picking === null ? ["Draw", uyDrawMine] : null;
+  extra.hidden = !act;
+  if (act) { extra.textContent = act[0]; extra.onclick = (e) => { e.stopPropagation(); act[1](); }; }
+}
+function uyRender() { // your hand: the cards you can play stand up; a Wild asks for a colour first
+  const G = game, top = G.pile.at(-1), mine = G.turn === 0 && !G.busy && !G.over;
+  uyHand.style.bottom = innerHeight - document.getElementById("seatbar").getBoundingClientRect().top + 10 + "px";
+  if (G.picking !== null) {
+    uyHand.innerHTML = `<div class="pick">Pick a colour ${COLORS.map((c) => `<button class="sw" data-c="${c}" style="background:${UY_COL[c]}" aria-label="${c}"></button>`).join("")}</div>`;
+    return;
+  }
+  uyHand.innerHTML = G.hands[0].map((c, i) => {
+    const ok = mine && (G.drawn === null ? canPlay(c, top, G.color) : i === G.drawn);
+    return `<button class="card${ok ? " ok" : ""}" data-i="${i}"${ok ? "" : " disabled"} aria-label="${uyName(c)}"><img src="${uyUrl(c)}" alt=""></button>`;
+  }).join("");
+}
+uyHand.onclick = (e) => {
+  e.stopPropagation();
+  const G = game, b = e.target.closest("button");
+  if (!G || !b || b.disabled) return;
+  if (b.dataset.c) return uyPlay(0, G.picking, b.dataset.c);
+  const i = +b.dataset.i;
+  if (G.hands[0][i].c) return uyPlay(0, i);
+  G.picking = i; // a Wild: which colour?
+  uyBar(); uyRender();
+};
+function uyEnd(result) {
+  const G = game;
+  G.over = true; G.busy = true; G.mustCall = false;
+  clearTimeout(G.callTimer);
+  bump(`uyes:${G.level}:${result}`);
+  G.hint = (result === "win" ? "You win! 🎉" : "Bankza wins! 😎") + (counts ? ` Everyone so far: ${uyScore(G.level)}` : "");
+  uyBar(); uyRender();
+  bigText(result === "win" ? "YOU WIN!" : "BANKZA WINS!", result);
+  setTimeout(() => { if (game === G) director = uyShot(false); }, 900); // look up to see how he takes it
+  if (result === "win") { confetti(UY.g, 0.002); tune([523, 659, 784, 1047], 0.11, "triangle"); }
+  else tune([392, 370, 349, 294], 0.32, "sawtooth", true);
+  mood = { won: result === "lose", t0: performance.now() };
 }
 
 // ---------------------------------------------------------------- latte art: pour a heart in a cup on the counter
@@ -1953,6 +2235,7 @@ const SPOT = {
   drink_half: () => seated && !!myDrink && drinkLeft() > 0 && drinkLeft() < 1,
   drink_empty: () => seated && !!myDrink && drinkLeft() === 0,
   poured: () => eggs.has("latte"), // you've tried latte art
+  dealt: () => eggs.has("uyes"), // you've found the UYES box
   music_on: () => musicOn(),
   music_off: () => !musicOn(),
   dancing: () => dancing,
